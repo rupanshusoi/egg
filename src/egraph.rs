@@ -51,6 +51,8 @@ You must call [`EGraph::rebuild`] after deserializing an e-graph!
 #[derive(Clone)]
 #[cfg_attr(feature = "serde-1", derive(Serialize, Deserialize))]
 pub struct EGraph<L: Language, N: Analysis<L>> {
+    /// This egraph's version.
+    pub version: usize,
     /// The `Analysis` given when creating this `EGraph`.
     pub analysis: N,
     /// The `Explain` used to explain equivalences in this `EGraph`.
@@ -112,6 +114,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Creates a new, empty `EGraph` with the given `Analysis`
     pub fn new(analysis: N) -> Self {
         Self {
+            version: Default::default(),
             analysis,
             classes: Default::default(),
             unionfind: Default::default(),
@@ -636,6 +639,7 @@ where
                 .map(|l| self.map_node(l))
                 .collect(),
             data: self.map_data(src_eclass.data),
+            version: src_eclass.version,
             parents: src_eclass.parents,
         }
     }
@@ -644,6 +648,7 @@ where
     fn map_egraph(&self, src_egraph: EGraph<L, A>) -> EGraph<Self::L2, Self::A2> {
         let kv_map = |(k, v): (L, Id)| (self.map_node(k), v);
         EGraph {
+            version: src_egraph.version,
             analysis: self.map_analysis(src_egraph.analysis),
             explain: None,
             unionfind: src_egraph.unionfind,
@@ -1077,6 +1082,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             id,
             nodes: vec![enode.clone()],
             data: N::make(self, &original),
+            version: self.version,
             parents: Default::default(),
         };
 
@@ -1226,6 +1232,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         self.pending.extend(class2.parents.iter().copied());
         let did_merge = self.analysis.merge(&mut class1.data, class2.data);
+        merge_min(&mut class1.version, class2.version);
         if did_merge.0 {
             self.analysis_pending.extend(class1.parents.iter().copied());
         }
@@ -1296,23 +1303,33 @@ impl<L: Language + Display, N: Analysis<L>> EGraph<L, N> {
 // All the rebuilding stuff
 impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     #[inline(never)]
-    fn rebuild_classes(&mut self) -> usize {
+    fn rebuild_classes(&mut self, updated_classes: HashSet<Id>) -> usize {
         let mut classes_by_op = std::mem::take(&mut self.classes_by_op);
+        // Clear all the hashsets
         classes_by_op.values_mut().for_each(|ids| ids.clear());
 
         let mut trimmed = 0;
         let uf = &mut self.unionfind;
 
         for class in self.classes.values_mut() {
-            let old_len = class.len();
-            class
-                .nodes
-                .iter_mut()
-                .for_each(|n| n.update_children(|id| uf.find_mut(id)));
-            class.nodes.sort_unstable();
-            class.nodes.dedup();
+            // if class.version < self.version {
+            //     continue;
+            // }
 
-            trimmed += old_len - class.nodes.len();
+            if !updated_classes.contains(&class.id) {
+                // What ops can I guarantee will be no-ops for 0 classes?
+                let old_len = class.len();
+                class
+                    .nodes
+                    .iter_mut()
+                    // Children should be same for 0 classes assuming merges happen in the 1->0
+                    // direction
+                    .for_each(|n| n.update_children(|id| uf.find_mut(id)));
+                class.nodes.sort_unstable();
+                class.nodes.dedup();
+
+                trimmed += old_len - class.nodes.len();
+            }
 
             let mut add = |n: &L| {
                 classes_by_op
@@ -1380,11 +1397,19 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     #[inline(never)]
-    fn process_unions(&mut self) -> usize {
+    // As far as I can tell this performs all the unions that have to be performed at this point,
+    // and then rebuild_classes canonicalizes ids afterwards—all it does is call find_mut on every
+    // child, and also recreates classes_by_op. Importantly, there is no information flow from
+    // here to rebuild_classes. Hence the traversal over the whole egraph that we see there. We
+    // need a way to tell rebuild_classes which classes have to be rebuilt and which do not. Surely
+    // that has something to do with what unions were performed?
+    fn process_unions(&mut self) -> (usize, HashSet<Id>) {
         let mut n_unions = 0;
+        let mut updated_classes = HashSet::default();
 
         while !self.pending.is_empty() || !self.analysis_pending.is_empty() {
             while let Some(class) = self.pending.pop() {
+                updated_classes.insert(class);
                 let mut node = self.nodes[usize::from(class)].clone();
                 node.update_children(|id| self.find_mut(id));
                 if let Some(memo_class) = self.memo.insert(node, class) {
@@ -1405,6 +1430,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 let class = self.classes.get_mut(&class_id).unwrap();
 
                 let did_merge = self.analysis.merge(&mut class.data, node_data);
+                merge_min(&mut class.version, self.version);
                 if did_merge.0 {
                     self.analysis_pending.extend(class.parents.iter().copied());
                     N::modify(self, class_id)
@@ -1415,7 +1441,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         assert!(self.pending.is_empty());
         assert!(self.analysis_pending.is_empty());
 
-        n_unions
+        (n_unions, updated_classes)
     }
 
     /// Restores the egraph invariants of congruence and enode uniqueness.
@@ -1461,8 +1487,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         let start = Instant::now();
 
-        let n_unions = self.process_unions();
-        let trimmed_nodes = self.rebuild_classes();
+        let (n_unions, updated_classes) = self.process_unions();
+        let trimmed_nodes = self.rebuild_classes(updated_classes);
 
         let elapsed = start.elapsed();
         info!(
@@ -1505,7 +1531,11 @@ impl<'a, L: Language, N: Analysis<L>> Debug for EGraphDump<'a, L, N> {
         for id in ids {
             let mut nodes = self.0[id].nodes.clone();
             nodes.sort();
-            writeln!(f, "{} ({:?}): {:?}", id, self.0[id].data, nodes)?
+            writeln!(
+                f,
+                "{} (version: {}) ({:?}): {:?}",
+                id, self.0[id].version, self.0[id].data, nodes
+            )?
         }
         Ok(())
     }

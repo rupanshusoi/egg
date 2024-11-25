@@ -8,6 +8,8 @@ use crate::*;
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
 pub struct EClass<L, D> {
+    /// This eclass's version.
+    pub version: usize,
     /// This eclass's id.
     pub id: Id,
     /// The equivalent enodes in this equivalence class.
