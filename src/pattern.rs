@@ -294,7 +294,9 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
                     Some(ids) => rewrite::search_eclasses_with_limit(
                         self,
                         egraph,
-                        ids.iter().cloned(),
+                        ids.iter()
+                            .filter(|id| egraph[**id].version == egraph.version)
+                            .cloned(),
                         limit,
                     ),
                 }
@@ -302,7 +304,10 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
             ENodeOrVar::Var(_) => rewrite::search_eclasses_with_limit(
                 self,
                 egraph,
-                egraph.classes().map(|e| e.id),
+                egraph
+                    .classes()
+                    .map(|e| e.id)
+                    .filter(|id| egraph[*id].version == egraph.version),
                 limit,
             ),
         }
@@ -314,6 +319,12 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
         eclass: Id,
         limit: usize,
     ) -> Option<SearchMatches<L>> {
+        if egraph[eclass].version < egraph.version {
+            return None;
+        } else if egraph[eclass].version > egraph.version {
+            unreachable!()
+        }
+
         let substs = self.program.run_with_limit(egraph, eclass, limit);
         if substs.is_empty() {
             None
