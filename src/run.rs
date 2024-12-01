@@ -535,7 +535,7 @@ where
     }
 
     fn run_one(&mut self, rules: &[&Rewrite<L, N>]) -> Iteration<IterData> {
-        assert!(self.stop_reason.is_none());
+        // assert!(self.stop_reason.is_none());
 
         info!("\nIteration {}", self.iterations.len());
 

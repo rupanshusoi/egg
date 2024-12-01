@@ -295,8 +295,8 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
                         self,
                         egraph,
                         ids.iter()
-                            .filter(|id| egraph[**id].version == egraph.version)
-                            .cloned(),
+                            .copied()
+                            .filter(|id| egraph[*id].version == egraph.version),
                         limit,
                     ),
                 }

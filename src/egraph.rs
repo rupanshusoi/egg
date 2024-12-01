@@ -63,6 +63,8 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     /// Stores each enode's `Id`, not the `Id` of the eclass.
     /// Enodes in the memo are canonicalized at each rebuild, but after rebuilding new
     /// unions can cause them to become out of date.
+    ///
+    /// Weird, in the paper this is supposed to store the Id of the eclass!!
     #[cfg_attr(feature = "serde-1", serde(with = "vectorize"))]
     memo: HashMap<L, Id>,
     /// Nodes which need to be processed for rebuilding. The `Id` is the `Id` of the enode,
@@ -1232,7 +1234,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         self.pending.extend(class2.parents.iter().copied());
         let did_merge = self.analysis.merge(&mut class1.data, class2.data);
-        merge_min(&mut class1.version, class2.version);
+        merge_max(&mut class1.version, class2.version);
         if did_merge.0 {
             self.analysis_pending.extend(class1.parents.iter().copied());
         }
@@ -1303,6 +1305,7 @@ impl<L: Language + Display, N: Analysis<L>> EGraph<L, N> {
 // All the rebuilding stuff
 impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     #[inline(never)]
+    // updated_classes are the parents of every removed node.
     fn rebuild_classes(&mut self, updated_classes: HashSet<Id>) -> usize {
         let mut classes_by_op = std::mem::take(&mut self.classes_by_op);
         // Clear all the hashsets
@@ -1312,18 +1315,11 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let uf = &mut self.unionfind;
 
         for class in self.classes.values_mut() {
-            // if class.version < self.version {
-            //     continue;
-            // }
-
-            if !updated_classes.contains(&class.id) {
-                // What ops can I guarantee will be no-ops for 0 classes?
+            if updated_classes.contains(&class.id) {
                 let old_len = class.len();
                 class
                     .nodes
                     .iter_mut()
-                    // Children should be same for 0 classes assuming merges happen in the 1->0
-                    // direction
                     .for_each(|n| n.update_children(|id| uf.find_mut(id)));
                 class.nodes.sort_unstable();
                 class.nodes.dedup();
@@ -1408,11 +1404,17 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let mut updated_classes = HashSet::default();
 
         while !self.pending.is_empty() || !self.analysis_pending.is_empty() {
+            // Somewhere in a galaxy far away a child of this enode got unioned. Now, we must look
+            // at this enode to see if it has become congruent with another eclass. It is confusing
+            // to call this `class` when you're using it as an enode really.
             while let Some(class) = self.pending.pop() {
-                updated_classes.insert(class);
+                updated_classes.insert(self.find_mut(class));
+                // Find what this parent looked like in its infancy.
                 let mut node = self.nodes[usize::from(class)].clone();
+                // Bring it forward in time, i.e. canonicalize it.
                 node.update_children(|id| self.find_mut(id));
                 if let Some(memo_class) = self.memo.insert(node, class) {
+                    // perform_union will add more parents to pending if reqd
                     let did_something = self.perform_union(
                         memo_class,
                         class,
@@ -1423,14 +1425,27 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 }
             }
 
+            // I don't think this part can affect self.pending. So why didn't they write these as
+            // two separate while-loops?
+            // analysis_pending just means that eclass's analysis data might need to be updated,
+            // because analysis data for one of its children changed.
             while let Some(class_id) = self.analysis_pending.pop() {
+                // Find the node this id originally was (i.e. when it was inserted)
                 let node = self.nodes[usize::from(class_id)].clone();
                 let class_id = self.find_mut(class_id);
                 let node_data = N::make(self, &node);
                 let class = self.classes.get_mut(&class_id).unwrap();
 
+                // Is this even correct? I thought what we were supposed to do is find the current
+                // analysis for this eclass, then compute what it should be (the current one is out
+                // of date presumably), and then union those. But instead this code is computing
+                // what it originally was and unioning that with what it currently is? That seems
+                // doubly wrong. First, we should not care about what it was at the time of
+                // insertion. Many changes might have happened since then. Second, you didn't even
+                // compute the new, correct value—you just took class.data which is the thing that
+                // is out of date!
                 let did_merge = self.analysis.merge(&mut class.data, node_data);
-                merge_min(&mut class.version, self.version);
+                merge_max(&mut class.version, self.version);
                 if did_merge.0 {
                     self.analysis_pending.extend(class.parents.iter().copied());
                     N::modify(self, class_id)
@@ -1482,6 +1497,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// assert_eq!(egraph.find(ax), egraph.find(ay));
     /// ```
     pub fn rebuild(&mut self) -> usize {
+        // sleep for 1 ms
+        // std::thread::sleep(std::time::Duration::from_millis(1));
         let old_hc_size = self.memo.len();
         let old_n_eclasses = self.number_of_classes();
 
@@ -1545,6 +1562,20 @@ impl<'a, L: Language, N: Analysis<L>> Debug for EGraphDump<'a, L, N> {
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn simple_union() {
+        let mut eg: EGraph<SymbolLang, ()> = EGraph::default();
+
+        eg.add_expr(&"(f x)".parse().unwrap());
+        eg.add_expr(&"(f y)".parse().unwrap());
+
+        eg.union(0.into(), 2.into());
+        // eg.rebuild();
+
+        println!("{:?}", eg.dump());
+        println!("{:?}", eg.classes);
+    }
 
     #[test]
     fn simple_add() {
