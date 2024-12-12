@@ -57,7 +57,7 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     pub analysis: N,
     /// The `Explain` used to explain equivalences in this `EGraph`.
     pub(crate) explain: Option<Explain<L>>,
-    unionfind: UnionFind,
+    pub(crate) unionfind: UnionFind,
     /// Stores the original node represented by each non-canonical id
     nodes: Vec<L>,
     /// Stores each enode's `Id`, not the `Id` of the eclass.
