@@ -42,7 +42,6 @@ mod eclass;
 mod egraph;
 mod explain;
 mod extract;
-mod filter;
 mod language;
 #[cfg(feature = "lp")]
 mod lp_extract;

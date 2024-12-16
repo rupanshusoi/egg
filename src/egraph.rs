@@ -51,6 +51,8 @@ You must call [`EGraph::rebuild`] after deserializing an e-graph!
 #[derive(Clone)]
 #[cfg_attr(feature = "serde-1", derive(Serialize, Deserialize))]
 pub struct EGraph<L: Language, N: Analysis<L>> {
+    /// The current whitelist.
+    pub whitelist: HashSet<Id>,
     /// This egraph's version.
     pub version: usize,
     /// The `Analysis` given when creating this `EGraph`.
@@ -116,6 +118,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Creates a new, empty `EGraph` with the given `Analysis`
     pub fn new(analysis: N) -> Self {
         Self {
+            whitelist: Default::default(),
             version: Default::default(),
             analysis,
             classes: Default::default(),
@@ -650,6 +653,7 @@ where
     fn map_egraph(&self, src_egraph: EGraph<L, A>) -> EGraph<Self::L2, Self::A2> {
         let kv_map = |(k, v): (L, Id)| (self.map_node(k), v);
         EGraph {
+            whitelist: Default::default(),
             version: src_egraph.version,
             analysis: self.map_analysis(src_egraph.analysis),
             explain: None,
@@ -672,7 +676,7 @@ where
                 .into_iter()
                 .map(|(k, v)| (self.map_discriminant(k), v))
                 .collect(),
-            clean: src_egraph.clean,
+            clean: false,
         }
     }
 }
@@ -1234,7 +1238,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         self.pending.extend(class2.parents.iter().copied());
         let did_merge = self.analysis.merge(&mut class1.data, class2.data);
-        merge_max(&mut class1.version, class2.version);
+        merge_min(&mut class1.version, class2.version);
         if did_merge.0 {
             self.analysis_pending.extend(class1.parents.iter().copied());
         }
@@ -1304,6 +1308,38 @@ impl<L: Language + Display, N: Analysis<L>> EGraph<L, N> {
 
 // All the rebuilding stuff
 impl<L: Language, N: Analysis<L>> EGraph<L, N> {
+    fn add_reachable(&self, id: Id, whitelist: &mut HashSet<Id>) {
+        if whitelist.contains(&id) {
+            return;
+        }
+        whitelist.insert(self.find(id));
+        for node in self[id].nodes.iter() {
+            for child in node.children().iter() {
+                self.add_reachable(*child, whitelist);
+            }
+        }
+    }
+
+    #[inline(never)]
+    fn update_whitelist(&mut self) {
+        // TODO: Don't iterate over all classes
+        let ids = self
+            .classes()
+            .into_iter()
+            .filter(|ec| ec.version == self.version)
+            .map(|ec| self.find(ec.id))
+            .collect::<HashSet<_>>();
+
+        let mut whitelist = HashSet::default();
+        for id in ids {
+            if !whitelist.contains(&id) {
+                self.add_reachable(id, &mut whitelist);
+            }
+        }
+
+        self.whitelist = whitelist;
+    }
+
     #[inline(never)]
     // updated_classes are the parents of every removed node.
     fn rebuild_classes(&mut self, updated_classes: HashSet<Id>) -> usize {
@@ -1445,7 +1481,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 // compute the new, correct value—you just took class.data which is the thing that
                 // is out of date!
                 let did_merge = self.analysis.merge(&mut class.data, node_data);
-                merge_max(&mut class.version, self.version);
+                merge_min(&mut class.version, self.version);
                 if did_merge.0 {
                     self.analysis_pending.extend(class.parents.iter().copied());
                     N::modify(self, class_id)
@@ -1506,6 +1542,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         let (n_unions, updated_classes) = self.process_unions();
         let trimmed_nodes = self.rebuild_classes(updated_classes);
+        self.update_whitelist();
 
         let elapsed = start.elapsed();
         info!(
