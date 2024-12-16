@@ -1308,14 +1308,35 @@ impl<L: Language + Display, N: Analysis<L>> EGraph<L, N> {
 
 // All the rebuilding stuff
 impl<L: Language, N: Analysis<L>> EGraph<L, N> {
-    fn add_reachable(&self, id: Id, whitelist: &mut HashSet<Id>) {
-        if whitelist.contains(&id) {
+    // Thanks ChatGPT
+    pub(crate) fn add_reachable(&self, start_id: Id, whitelist: &mut HashSet<Id>) {
+        let mut stack = Vec::new();
+
+        // Find a consistent representative for the start_id.
+        let start_repr = self.find(start_id);
+        // If it's already visited, no work to do
+        if whitelist.contains(&start_repr) {
             return;
         }
-        whitelist.insert(self.find(id));
-        for node in self[id].nodes.iter() {
-            for child in node.children().iter() {
-                self.add_reachable(*child, whitelist);
+        // Mark it visited and start the traversal
+        whitelist.insert(start_repr);
+        stack.push(start_repr);
+
+        while let Some(current) = stack.pop() {
+            // current is already visited here.
+
+            // For each node in the equivalence class represented by `current`
+            for node in self[current].nodes.iter() {
+                for child in node.children().iter() {
+                    // Normalize the child to its representative
+                    let child_repr = self.find(*child);
+
+                    // Only proceed if we haven't visited this representative
+                    if !whitelist.contains(&child_repr) {
+                        whitelist.insert(child_repr);
+                        stack.push(child_repr);
+                    }
+                }
             }
         }
     }
