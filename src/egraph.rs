@@ -1366,16 +1366,18 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     #[inline(never)]
     fn update_whitelist(&mut self) {
         // TODO: Don't iterate over all classes
-        let ids = self
+        let mut ids = self
             .classes()
             .into_iter()
             .filter(|ec| ec.version == self.version)
             .map(|ec| self.find(ec.id))
             .collect::<HashSet<_>>();
 
-        let mut whitelist = HashSet::default();
-        whitelist.extend(self.newly_added.iter());
+        // Canonicalize newly_added
+        self.newly_added = self.newly_added.iter().map(|id| self.find(*id)).collect();
+        ids.extend(self.newly_added.iter());
 
+        let mut whitelist = HashSet::default();
         for id in ids {
             if !whitelist.contains(&id) {
                 self.add_reachable(id, &mut whitelist);
