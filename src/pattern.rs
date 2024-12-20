@@ -296,7 +296,7 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
                         egraph,
                         ids.iter()
                             .copied()
-                            .filter(|id| egraph[*id].version == egraph.version),
+                            .filter(|id| egraph[*id].version == egraph.get_version()),
                         limit,
                     ),
                 }
@@ -307,7 +307,7 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
                 egraph
                     .classes()
                     .map(|e| e.id)
-                    .filter(|id| egraph[*id].version == egraph.version),
+                    .filter(|id| egraph[*id].version == egraph.get_version()),
                 limit,
             ),
         }
@@ -319,9 +319,9 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
         eclass: Id,
         limit: usize,
     ) -> Option<SearchMatches<L>> {
-        if egraph[eclass].version < egraph.version {
+        if egraph[eclass].version < egraph.get_version() {
             return None;
-        } else if egraph[eclass].version > egraph.version {
+        } else if egraph[eclass].version > egraph.get_version() {
             unreachable!()
         }
 

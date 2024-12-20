@@ -53,8 +53,10 @@ You must call [`EGraph::rebuild`] after deserializing an e-graph!
 pub struct EGraph<L: Language, N: Analysis<L>> {
     /// The current whitelist.
     pub whitelist: HashSet<Id>,
-    /// This egraph's version.
-    pub version: usize,
+    /// The current version.
+    version: usize,
+    /// Nodes added at this version.
+    newly_added: Vec<Id>,
     /// The `Analysis` given when creating this `EGraph`.
     pub analysis: N,
     /// The `Explain` used to explain equivalences in this `EGraph`.
@@ -120,6 +122,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         Self {
             whitelist: Default::default(),
             version: Default::default(),
+            newly_added: Default::default(),
             analysis,
             classes: Default::default(),
             unionfind: Default::default(),
@@ -131,6 +134,18 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             analysis_pending: Default::default(),
             classes_by_op: Default::default(),
         }
+    }
+
+    /// Increment the version.
+    pub fn inc_version(&mut self) -> usize {
+        self.newly_added.clear();
+        self.version += 1;
+        self.version
+    }
+
+    /// Get the version.
+    pub fn get_version(&self) -> usize {
+        self.version
     }
 
     /// Returns an iterator over the eclasses in the egraph.
@@ -655,6 +670,7 @@ where
         EGraph {
             whitelist: Default::default(),
             version: src_egraph.version,
+            newly_added: todo!(),
             analysis: self.map_analysis(src_egraph.analysis),
             explain: None,
             unionfind: src_egraph.unionfind,
@@ -1051,6 +1067,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let original = enode.clone();
         if let Some(existing_id) = self.lookup_internal(&mut enode) {
             let id = self.find(existing_id);
+
+            // TODO: This might be slow for each add...
+            if self[id].version < self.version {
+                self.newly_added.push(id);
+            }
+
             // when explanations are enabled, we need a new representative for this expr
             if let Some(explain) = self.explain.as_mut() {
                 if let Some(existing_explain) = explain.uncanon_memo.get(&original) {
@@ -1352,6 +1374,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             .collect::<HashSet<_>>();
 
         let mut whitelist = HashSet::default();
+        whitelist.extend(self.newly_added.iter());
+
         for id in ids {
             if !whitelist.contains(&id) {
                 self.add_reachable(id, &mut whitelist);
