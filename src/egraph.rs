@@ -1069,7 +1069,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             let id = self.find(existing_id);
 
             // TODO: This might be slow for each add...
-            if self[id].version < self.version {
+            if self[id].version <= self.version {
                 self.newly_added.push(id);
             }
 
