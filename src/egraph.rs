@@ -51,11 +51,14 @@ You must call [`EGraph::rebuild`] after deserializing an e-graph!
 #[derive(Clone)]
 #[cfg_attr(feature = "serde-1", derive(Serialize, Deserialize))]
 pub struct EGraph<L: Language, N: Analysis<L>> {
-    /// The current whitelist.
-    pub whitelist: HashSet<Id>,
     /// The current version.
     version: usize,
-    /// Nodes added at this version.
+    /// Externally visible eclasses at the current version. This is the transitive closure of
+    /// latest_classes and newly_added.
+    pub whitelist: HashSet<Id>,
+    /// Eclasses at the current version.
+    pub(crate) latest_classes: HashSet<Id>,
+    /// Nodes added after arriving at the current version.
     newly_added: Vec<Id>,
     /// The `Analysis` given when creating this `EGraph`.
     pub analysis: N,
@@ -123,6 +126,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             whitelist: Default::default(),
             version: Default::default(),
             newly_added: Default::default(),
+            latest_classes: Default::default(),
             analysis,
             classes: Default::default(),
             unionfind: Default::default(),
@@ -671,6 +675,7 @@ where
             whitelist: Default::default(),
             version: src_egraph.version,
             newly_added: todo!(),
+            latest_classes: todo!(),
             analysis: self.map_analysis(src_egraph.analysis),
             explain: None,
             unionfind: src_egraph.unionfind,
@@ -1366,7 +1371,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     #[inline(never)]
     fn update_whitelist(&mut self) {
         // TODO: Don't iterate over all classes
-        let mut ids = self
+        let latest = self
             .classes()
             .into_iter()
             .filter(|ec| ec.version == self.version)
@@ -1375,15 +1380,20 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         // Canonicalize newly_added
         self.newly_added = self.newly_added.iter().map(|id| self.find(*id)).collect();
-        ids.extend(self.newly_added.iter());
 
         let mut whitelist = HashSet::default();
-        for id in ids {
-            if !whitelist.contains(&id) {
-                self.add_reachable(id, &mut whitelist);
+        for id in latest.iter() {
+            if !whitelist.contains(id) {
+                self.add_reachable(*id, &mut whitelist);
+            }
+        }
+        for id in self.newly_added.iter() {
+            if !whitelist.contains(id) {
+                self.add_reachable(*id, &mut whitelist);
             }
         }
 
+        self.latest_classes = latest;
         self.whitelist = whitelist;
     }
 
