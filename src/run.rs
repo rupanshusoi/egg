@@ -264,6 +264,7 @@ pub struct Report {
     pub egraph_classes: usize,
     pub memo_size: usize,
     pub rebuilds: usize,
+    pub whitelist: usize,
     pub total_time: f64,
     pub search_time: f64,
     pub apply_time: f64,
@@ -278,6 +279,7 @@ impl std::fmt::Display for Report {
         writeln!(f, "  Stop reason: {:?}", self.stop_reason)?;
         writeln!(f, "  Iterations: {}", self.iterations)?;
         writeln!(f, "  Egraph size: {} nodes, {} classes, {} memo", self.egraph_nodes, self.egraph_classes, self.memo_size)?;
+        writeln!(f, "  Whitelist: {} ids ({:.1}% of classes)", self.whitelist, 100.0 * self.whitelist as f64 / self.egraph_classes as f64)?;
         writeln!(f, "  Rebuilds: {}", self.rebuilds)?;
         writeln!(f, "  Total time: {}", self.total_time)?;
         writeln!(f, "    Search:  ({:.2}) {}", self.search_time / self.total_time, self.search_time)?;
@@ -527,6 +529,7 @@ where
             egraph_classes: self.egraph.number_of_classes(),
             memo_size: self.egraph.total_size(),
             rebuilds: self.iterations.iter().map(|i| i.n_rebuilds).sum(),
+            whitelist: self.egraph.whitelist.len(),
             search_time: self.iterations.iter().map(|i| i.search_time).sum(),
             apply_time: self.iterations.iter().map(|i| i.apply_time).sum(),
             rebuild_time: self.iterations.iter().map(|i| i.rebuild_time).sum(),
@@ -535,7 +538,7 @@ where
     }
 
     fn run_one(&mut self, rules: &[&Rewrite<L, N>]) -> Iteration<IterData> {
-        // assert!(self.stop_reason.is_none());
+        assert!(self.stop_reason.is_none());
 
         info!("\nIteration {}", self.iterations.len());
 
