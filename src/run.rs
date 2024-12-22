@@ -269,6 +269,7 @@ pub struct Report {
     pub search_time: f64,
     pub apply_time: f64,
     pub rebuild_time: f64,
+    pub iterdata_time: f64,
 }
 
 impl std::fmt::Display for Report {
@@ -282,9 +283,10 @@ impl std::fmt::Display for Report {
         writeln!(f, "  Whitelist: {} ids ({:.1}% of classes)", self.whitelist, 100.0 * self.whitelist as f64 / self.egraph_classes as f64)?;
         writeln!(f, "  Rebuilds: {}", self.rebuilds)?;
         writeln!(f, "  Total time: {}", self.total_time)?;
-        writeln!(f, "    Search:  ({:.2}) {}", self.search_time / self.total_time, self.search_time)?;
-        writeln!(f, "    Apply:   ({:.2}) {}", self.apply_time / self.total_time, self.apply_time)?;
-        writeln!(f, "    Rebuild: ({:.2}) {}", self.rebuild_time / self.total_time, self.rebuild_time)?;
+        writeln!(f, "    Search:   ({:.2}) {}", self.search_time / self.total_time, self.search_time)?;
+        writeln!(f, "    Apply:    ({:.2}) {}", self.apply_time / self.total_time, self.apply_time)?;
+        writeln!(f, "    Rebuild:  ({:.2}) {}", self.rebuild_time / self.total_time, self.rebuild_time)?;
+        writeln!(f, "    IterData: ({:.2}) {}", self.iterdata_time / self.total_time, self.iterdata_time);
         Ok(())
     }
 }
@@ -318,6 +320,8 @@ pub struct Iteration<IterData> {
     /// Seconds spent [`rebuild`](EGraph::rebuild())ing
     /// the egraph in this iteration.
     pub rebuild_time: f64,
+    /// Seconds spend in IterData::make.
+    pub iterdata_time: f64,
     /// Total time spent in this iteration, including data generation time.
     pub total_time: f64,
     /// The user provided annotation for this iteration
@@ -533,6 +537,7 @@ where
             search_time: self.iterations.iter().map(|i| i.search_time).sum(),
             apply_time: self.iterations.iter().map(|i| i.apply_time).sum(),
             rebuild_time: self.iterations.iter().map(|i| i.rebuild_time).sum(),
+            iterdata_time: self.iterations.iter().map(|i| i.iterdata_time).sum(),
             total_time: self.iterations.iter().map(|i| i.total_time).sum(),
         }
     }
@@ -634,6 +639,10 @@ where
             result = result.and(Err(StopReason::Saturated))
         }
 
+        let iterdata_start = Instant::now();
+        let data = IterData::make(self);
+        let iterdata_time = iterdata_start.elapsed().as_secs_f64();
+
         Iteration {
             applied,
             egraph_nodes,
@@ -642,8 +651,9 @@ where
             search_time,
             apply_time,
             rebuild_time,
+            iterdata_time,
             n_rebuilds,
-            data: IterData::make(self),
+            data,
             total_time: start_time.elapsed().as_secs_f64(),
             stop_reason: result.err(),
         }
