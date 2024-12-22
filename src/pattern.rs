@@ -294,22 +294,19 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
                     Some(ids) => rewrite::search_eclasses_with_limit(
                         self,
                         egraph,
-                        ids.iter()
-                            .copied()
-                            .filter(|id| egraph[*id].version == egraph.get_version()),
+                        egraph
+                            .whitelist
+                            .intersection(ids)
+                            .collect::<HashSet<_>>()
+                            .into_iter()
+                            .copied(),
                         limit,
                     ),
                 }
             }
-            ENodeOrVar::Var(_) => rewrite::search_eclasses_with_limit(
-                self,
-                egraph,
-                egraph
-                    .classes()
-                    .map(|e| e.id)
-                    .filter(|id| egraph[*id].version == egraph.get_version()),
-                limit,
-            ),
+            ENodeOrVar::Var(_) => {
+                rewrite::search_eclasses_with_limit(self, egraph, egraph.whitelist.clone(), limit)
+            }
         }
     }
 
