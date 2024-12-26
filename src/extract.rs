@@ -216,15 +216,14 @@ where
             egraph,
             cost_function,
         };
-        // extractor.find_costs();
+        extractor.find_costs();
 
         extractor
     }
 
     /// Find the cheapest (lowest cost) represented `RecExpr` in the
     /// given eclass.
-    pub fn find_best(&mut self, eclass: Id) -> (CF::Cost, RecExpr<L>) {
-        self.find_costs_inc(eclass);
+    pub fn find_best(&self, eclass: Id) -> (CF::Cost, RecExpr<L>) {
         let (cost, root) = self.costs[&self.egraph.find(eclass)].clone();
         let expr = root.build_recexpr(|id| self.find_best_node(id).clone());
         (cost, expr)
@@ -258,15 +257,16 @@ where
         while did_something {
             did_something = false;
 
-            for class in self.egraph.classes() {
-                let pass = self.make_pass(class);
-                match (self.costs.get(&class.id), pass) {
+            for id in self.egraph.whitelist.iter() {
+                let class = &self.egraph[*id];
+                let pass = self.make_pass(&class);
+                match (self.costs.get(&self.egraph.find(class.id)), pass) {
                     (None, Some(new)) => {
-                        self.costs.insert(class.id, new);
+                        self.costs.insert(self.egraph.find(class.id), new);
                         did_something = true;
                     }
                     (Some(old), Some(new)) if new.0 < old.0 => {
-                        self.costs.insert(class.id, new);
+                        self.costs.insert(self.egraph.find(class.id), new);
                         did_something = true;
                     }
                     _ => (),
@@ -281,32 +281,6 @@ where
                     class.id,
                     class.nodes
                 )
-            }
-        }
-    }
-
-    fn find_costs_inc(&mut self, id: Id) {
-        let mut reachable = hashbrown::HashSet::default();
-        self.egraph.add_reachable(id, &mut reachable);
-
-        let mut did_something = true;
-        while did_something {
-            did_something = false;
-
-            for id in reachable.iter() {
-                let class = &self.egraph[*id];
-                let pass = self.make_pass(class);
-                match (self.costs.get(&class.id), pass) {
-                    (None, Some(new)) => {
-                        self.costs.insert(class.id, new);
-                        did_something = true;
-                    }
-                    (Some(old), Some(new)) if new.0 < old.0 => {
-                        self.costs.insert(class.id, new);
-                        did_something = true;
-                    }
-                    _ => (),
-                }
             }
         }
     }
