@@ -286,7 +286,7 @@ impl std::fmt::Display for Report {
         writeln!(f, "    Search:   ({:.2}) {}", self.search_time / self.total_time, self.search_time)?;
         writeln!(f, "    Apply:    ({:.2}) {}", self.apply_time / self.total_time, self.apply_time)?;
         writeln!(f, "    Rebuild:  ({:.2}) {}", self.rebuild_time / self.total_time, self.rebuild_time)?;
-        writeln!(f, "    IterData: ({:.2}) {}", self.iterdata_time / self.total_time, self.iterdata_time);
+        writeln!(f, "    IterData: ({:.2}) {}", self.iterdata_time / self.total_time, self.iterdata_time)?;
         Ok(())
     }
 }
