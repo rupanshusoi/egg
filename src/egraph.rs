@@ -1410,9 +1410,6 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     #[inline(never)]
     // updated_classes are the parents of every removed node.
     fn rebuild_classes(&mut self, updated_classes: HashSet<Id>) -> usize {
-        // Clear all the hashsets
-        // classes_by_op.values_mut().for_each(|ids| ids.clear());
-
         let mut trimmed = 0;
         let uf = &mut self.unionfind;
 
@@ -1428,43 +1425,22 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
                 trimmed += old_len - class.nodes.len();
             }
-
-            // let mut add = |n: &L| {
-            //     classes_by_op
-            //         .entry(n.discriminant())
-            //         .or_default()
-            //         .insert(class.id)
-            // };
-
-            // we can go through the ops in order to dedup them, becaue we
-            // just sorted them
-            // let mut nodes = class.nodes.iter();
-            // if let Some(mut prev) = nodes.next() {
-            //     add(prev);
-            //     for n in nodes {
-            //         if !prev.matches(n) {
-            //             add(n);
-            //             prev = n;
-            //         }
-            //     }
-            // }
         }
 
         let mut classes_by_op = std::mem::take(&mut self.classes_by_op);
-        while let Some((id2, id1)) = self.cbo_update.pop() {
-            for node in self[id2].nodes.iter() {
-                let discr = node.discriminant();
-                let set = classes_by_op.entry(discr).or_default();
+        while let Some((src, dest)) = self.cbo_update.pop() {
+            for node in self[src].nodes.iter() {
+                let set = classes_by_op.entry(node.discriminant()).or_default();
                 if set.is_empty() {
-                    set.insert(id1);
+                    unreachable!()
                 } else {
-                    if set.remove(&id2) {
-                        println!("Alright!");
-                    } else {
-                        println!("Not alright!");
-                    }
-                    // assert!(set.remove(&id2));
-                    set.insert(id1);
+                    // This can be further optimized. Since the unionfind already knows that src
+                    // was unioned into dest, when we lookup self[src] we actually get self[dest].
+                    // So the nodes that we are iterating over include ones from self[dest].
+                    // These set updates are redundant for those nodes, but right now we don't have
+                    // any way to prune them here.
+                    set.remove(&src);
+                    set.insert(dest);
                 }
             }
         }
