@@ -59,7 +59,7 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     pub whitelist: HashSet<Id>,
     /// Eclasses at the current version.
     pub(crate) latest_classes: HashSet<Id>,
-    /// Nodes added after arriving at the current version.
+    /// Nodes added after arriving at the current version that were already present.
     newly_added: Vec<Id>,
     /// The `Analysis` given when creating this `EGraph`.
     pub analysis: N,
@@ -90,7 +90,7 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     #[cfg_attr(feature = "serde-1", serde(skip))]
     #[cfg_attr(feature = "serde-1", serde(default = "default_classes_by_op"))]
     pub(crate) classes_by_op: HashMap<L::Discriminant, HashSet<Id>>,
-    cbo_update: UniqueQueue<(Id, Id)>,
+    cbo_pending: UniqueQueue<(Vec<L::Discriminant>, Id, Id)>,
     /// Whether or not reading operation are allowed on this e-graph.
     /// Mutating operations will set this to `false`, and
     /// [`EGraph::rebuild`] will set it to true.
@@ -138,7 +138,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             pending: Default::default(),
             memo: Default::default(),
             analysis_pending: Default::default(),
-            cbo_update: Default::default(),
+            cbo_pending: Default::default(),
             classes_by_op: Default::default(),
         }
     }
@@ -700,7 +700,7 @@ where
                 .into_iter()
                 .map(|(k, v)| (self.map_discriminant(k), v))
                 .collect(),
-            cbo_update: todo!(),
+            cbo_pending: todo!(),
             clean: false,
         }
     }
@@ -1259,14 +1259,18 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             std::mem::swap(&mut id1, &mut id2);
         }
 
+        let mut dscrms = vec![];
+        self.classes[&id2]
+            .iter()
+            .for_each(|node| dscrms.push(node.discriminant()));
+        self.cbo_pending.insert((dscrms, id2, id1));
+
         if let Some(explain) = &mut self.explain {
             explain.union(enode_id1, enode_id2, rule.unwrap(), any_new_rhs);
         }
 
         // make id1 the new root
         self.unionfind.union(id1, id2);
-
-        self.cbo_update.insert((id2, id1));
 
         assert_ne!(id1, id2);
         let class2 = self.classes.remove(&id2).unwrap();
@@ -1428,17 +1432,14 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         }
 
         let mut classes_by_op = std::mem::take(&mut self.classes_by_op);
-        while let Some((src, dest)) = self.cbo_update.pop() {
-            for node in self[src].nodes.iter() {
-                let set = classes_by_op.entry(node.discriminant()).or_default();
+        while let Some((dscrms, src, dest)) = self.cbo_pending.pop() {
+            for dscrm in dscrms {
+                let set = classes_by_op.entry(dscrm).or_default();
                 if set.is_empty() {
                     unreachable!()
                 } else {
-                    // This can be further optimized. Since the unionfind already knows that src
-                    // was unioned into dest, when we lookup self[src] we actually get self[dest].
-                    // So the nodes that we are iterating over include ones from self[dest].
-                    // These set updates are redundant for those nodes, but right now we don't have
-                    // any way to prune them here.
+                    // I want to assert that src is always present and dest is never present, but
+                    // that fails in some cases and I don't understand why...
                     set.remove(&src);
                     set.insert(dest);
                 }
