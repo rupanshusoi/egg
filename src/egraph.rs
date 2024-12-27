@@ -5,6 +5,7 @@ use std::{
     marker::PhantomData,
 };
 
+use hashbrown::hash_map::Entry;
 #[cfg(feature = "serde-1")]
 use serde::{Deserialize, Serialize};
 
@@ -89,6 +90,7 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     #[cfg_attr(feature = "serde-1", serde(skip))]
     #[cfg_attr(feature = "serde-1", serde(default = "default_classes_by_op"))]
     pub(crate) classes_by_op: HashMap<L::Discriminant, HashSet<Id>>,
+    cbo_update: UniqueQueue<(Id, Id)>,
     /// Whether or not reading operation are allowed on this e-graph.
     /// Mutating operations will set this to `false`, and
     /// [`EGraph::rebuild`] will set it to true.
@@ -136,6 +138,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             pending: Default::default(),
             memo: Default::default(),
             analysis_pending: Default::default(),
+            cbo_update: Default::default(),
             classes_by_op: Default::default(),
         }
     }
@@ -697,6 +700,7 @@ where
                 .into_iter()
                 .map(|(k, v)| (self.map_discriminant(k), v))
                 .collect(),
+            cbo_update: todo!(),
             clean: false,
         }
     }
@@ -1131,6 +1135,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         self.pending.push(id);
 
         self.classes.insert(id, class);
+        self.classes_by_op
+            .entry(enode.discriminant())
+            .or_default()
+            .insert(id);
         assert!(self.memo.insert(enode, id).is_none());
 
         id
@@ -1257,6 +1265,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         // make id1 the new root
         self.unionfind.union(id1, id2);
+
+        self.cbo_update.insert((id2, id1));
 
         assert_ne!(id1, id2);
         let class2 = self.classes.remove(&id2).unwrap();
@@ -1400,9 +1410,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     #[inline(never)]
     // updated_classes are the parents of every removed node.
     fn rebuild_classes(&mut self, updated_classes: HashSet<Id>) -> usize {
-        let mut classes_by_op = std::mem::take(&mut self.classes_by_op);
         // Clear all the hashsets
-        classes_by_op.values_mut().for_each(|ids| ids.clear());
+        // classes_by_op.values_mut().for_each(|ids| ids.clear());
 
         let mut trimmed = 0;
         let uf = &mut self.unionfind;
@@ -1420,29 +1429,48 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 trimmed += old_len - class.nodes.len();
             }
 
-            let mut add = |n: &L| {
-                classes_by_op
-                    .entry(n.discriminant())
-                    .or_default()
-                    .insert(class.id)
-            };
+            // let mut add = |n: &L| {
+            //     classes_by_op
+            //         .entry(n.discriminant())
+            //         .or_default()
+            //         .insert(class.id)
+            // };
 
             // we can go through the ops in order to dedup them, becaue we
             // just sorted them
-            let mut nodes = class.nodes.iter();
-            if let Some(mut prev) = nodes.next() {
-                add(prev);
-                for n in nodes {
-                    if !prev.matches(n) {
-                        add(n);
-                        prev = n;
+            // let mut nodes = class.nodes.iter();
+            // if let Some(mut prev) = nodes.next() {
+            //     add(prev);
+            //     for n in nodes {
+            //         if !prev.matches(n) {
+            //             add(n);
+            //             prev = n;
+            //         }
+            //     }
+            // }
+        }
+
+        let mut classes_by_op = std::mem::take(&mut self.classes_by_op);
+        while let Some((id2, id1)) = self.cbo_update.pop() {
+            for node in self[id2].nodes.iter() {
+                let discr = node.discriminant();
+                let set = classes_by_op.entry(discr).or_default();
+                if set.is_empty() {
+                    set.insert(id1);
+                } else {
+                    if set.remove(&id2) {
+                        println!("Alright!");
+                    } else {
+                        println!("Not alright!");
                     }
+                    // assert!(set.remove(&id2));
+                    set.insert(id1);
                 }
             }
         }
 
         #[cfg(debug_assertions)]
-        for ids in classes_by_op.values_mut() {
+        for ids in self.classes_by_op.values_mut() {
             let unique: HashSet<Id> = ids.iter().copied().collect();
             assert_eq!(ids.len(), unique.len());
         }
@@ -1595,13 +1623,26 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let old_hc_size = self.memo.len();
         let old_n_eclasses = self.number_of_classes();
 
+        let og_start = Instant::now();
+
         let start = Instant::now();
-
         let (n_unions, updated_classes) = self.process_unions();
-        let trimmed_nodes = self.rebuild_classes(updated_classes);
-        self.update_whitelist();
+        let duration = start.elapsed();
+        println!("process_unions() took: {:?}", duration);
 
-        let elapsed = start.elapsed();
+        // Measure how long `rebuild_classes()` takes
+        let start = Instant::now();
+        let trimmed_nodes = self.rebuild_classes(updated_classes);
+        let duration = start.elapsed();
+        println!("rebuild_classes() took: {:?}", duration);
+
+        // Measure how long `update_whitelist()` takes
+        let start = Instant::now();
+        self.update_whitelist();
+        let duration = start.elapsed();
+        println!("update_whitelist() took: {:?}", duration);
+
+        let elapsed = og_start.elapsed();
         info!(
             concat!(
                 "REBUILT! in {}.{:03}s\n",
