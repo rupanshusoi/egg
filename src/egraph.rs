@@ -60,7 +60,7 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     /// Eclasses at the current version.
     pub(crate) latest_classes: HashSet<Id>,
     /// Nodes added after arriving at the current version that were already present.
-    newly_added: Vec<Id>,
+    newly_added: HashSet<Id>,
     /// The `Analysis` given when creating this `EGraph`.
     pub analysis: N,
     /// The `Explain` used to explain equivalences in this `EGraph`.
@@ -146,6 +146,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Increment the version.
     pub fn inc_version(&mut self) -> usize {
         self.newly_added.clear();
+        self.latest_classes.clear();
         self.version += 1;
         self.version
     }
@@ -206,6 +207,13 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Returns the number of eclasses in the egraph.
     pub fn number_of_classes(&self) -> usize {
         self.classes.len()
+    }
+
+    /// Returns the total number of nodes in whitelisted eclasses.
+    pub fn total_number_of_whitelist_nodes(&self) -> usize {
+        self.whitelist
+            .iter()
+            .fold(0, |acc, id| acc + self[*id].nodes.len())
     }
 
     /// Enable explanations for this `EGraph`.
@@ -1077,10 +1085,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         if let Some(existing_id) = self.lookup_internal(&mut enode) {
             let id = self.find(existing_id);
 
-            // TODO: This might be slow for each add...
-            if self[id].version <= self.version {
-                self.newly_added.push(id);
-            }
+            // TODO: Is this slow?
+            self.newly_added.insert(id);
 
             // when explanations are enabled, we need a new representative for this expr
             if let Some(explain) = self.explain.as_mut() {
@@ -1100,6 +1106,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             }
         } else {
             let id = self.make_new_eclass(enode, original.clone());
+            self.latest_classes.insert(id);
+
             if let Some(explain) = self.explain.as_mut() {
                 explain.add(original, id, id);
             }
@@ -1384,19 +1392,16 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
     #[inline(never)]
     fn update_whitelist(&mut self) {
-        // TODO: Don't iterate over all classes
-        let latest = self
-            .classes()
-            .into_iter()
-            .filter(|ec| ec.version == self.version)
-            .map(|ec| self.find(ec.id))
-            .collect::<HashSet<_>>();
-
-        // Canonicalize newly_added
+        // Canonicalize
         self.newly_added = self.newly_added.iter().map(|id| self.find(*id)).collect();
+        self.latest_classes = self
+            .latest_classes
+            .iter()
+            .map(|id| self.find(*id))
+            .collect();
 
         let mut whitelist = HashSet::default();
-        for id in latest.iter() {
+        for id in self.latest_classes.iter() {
             if !whitelist.contains(id) {
                 self.add_reachable(*id, &mut whitelist);
             }
@@ -1407,7 +1412,6 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             }
         }
 
-        self.latest_classes = latest;
         self.whitelist = whitelist;
     }
 
@@ -1595,29 +1599,25 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// assert_eq!(egraph.find(ax), egraph.find(ay));
     /// ```
     pub fn rebuild(&mut self) -> usize {
-        // sleep for 1 ms
-        // std::thread::sleep(std::time::Duration::from_millis(1));
         let old_hc_size = self.memo.len();
         let old_n_eclasses = self.number_of_classes();
 
         let og_start = Instant::now();
 
-        let start = Instant::now();
         let (n_unions, updated_classes) = self.process_unions();
-        let duration = start.elapsed();
-        println!("process_unions() took: {:?}", duration);
-
-        // Measure how long `rebuild_classes()` takes
+        let unions = og_start.elapsed();
         let start = Instant::now();
         let trimmed_nodes = self.rebuild_classes(updated_classes);
-        let duration = start.elapsed();
-        println!("rebuild_classes() took: {:?}", duration);
-
-        // Measure how long `update_whitelist()` takes
+        let rc = start.elapsed();
         let start = Instant::now();
         self.update_whitelist();
-        let duration = start.elapsed();
-        println!("update_whitelist() took: {:?}", duration);
+        let whitelist = start.elapsed();
+        println!(
+            "Unions: {}\nRebuild classes: {}\nUpdate whitelist: {}\n",
+            unions.as_secs_f64(),
+            rc.as_secs_f64(),
+            whitelist.as_secs_f64()
+        );
 
         let elapsed = og_start.elapsed();
         info!(
