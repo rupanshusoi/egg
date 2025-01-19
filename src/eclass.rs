@@ -14,6 +14,8 @@ pub struct EClass<L, D> {
     pub id: Id,
     /// The equivalent enodes in this equivalence class.
     pub nodes: Vec<L>,
+    /// The version of each node in this eclass.
+    pub versions: Vec<usize>,
     /// The analysis data associated with this eclass.
     ///
     /// Modifying this field will _not_ cause changes to propagate through the e-graph.

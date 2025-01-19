@@ -89,6 +89,7 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     #[cfg_attr(feature = "serde-1", serde(skip))]
     #[cfg_attr(feature = "serde-1", serde(default = "default_classes_by_op"))]
     pub(crate) classes_by_op: HashMap<L::Discriminant, HashSet<Id>>,
+    #[cfg_attr(feature = "serde-1", serde(skip))]
     cbo_pending: UniqueQueue<(Vec<L::Discriminant>, Id, Id)>,
     /// Whether or not reading operation are allowed on this e-graph.
     /// Mutating operations will set this to `false`, and
@@ -672,6 +673,7 @@ where
                 .into_iter()
                 .map(|l| self.map_node(l))
                 .collect(),
+            versions: todo!(),
             data: self.map_data(src_eclass.data),
             version: src_eclass.version,
             parents: src_eclass.parents,
@@ -1125,6 +1127,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let class = EClass {
             id,
             nodes: vec![enode.clone()],
+            versions: vec![self.version],
             data: N::make(self, &original),
             version: self.version,
             parents: Default::default(),
@@ -1285,8 +1288,13 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         assert_eq!(id1, class1.id);
 
         self.pending.extend(class2.parents.iter().copied());
+
+        merge_max(&mut class1.version, class2.version);
+        if class1.version == self.version {
+            self.newest_classes.insert(id1);
+        }
+
         let did_merge = self.analysis.merge(&mut class1.data, class2.data);
-        merge_min(&mut class1.version, class2.version);
         if did_merge.0 {
             self.analysis_pending.extend(class1.parents.iter().copied());
         }
@@ -1295,7 +1303,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         }
 
         concat_vecs(&mut class1.nodes, class2.nodes);
+        concat_vecs(&mut class1.versions, class2.versions);
         concat_vecs(&mut class1.parents, class2.parents);
+
+        debug_assert!(class1.versions.iter().all(|v| *v <= class1.version));
 
         N::modify(self, id1);
         true
@@ -1431,8 +1442,25 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                     .nodes
                     .iter_mut()
                     .for_each(|n| n.update_children(|id| uf.find_mut(id)));
-                class.nodes.sort_unstable();
-                class.nodes.dedup();
+
+                // We need to keep nodes and versions in sync through sorting and
+                // deduplication. This might be slow.
+                let mut combined = class
+                    .nodes
+                    .clone()
+                    .into_iter()
+                    .zip(class.versions.clone().into_iter())
+                    .collect::<Vec<_>>();
+
+                combined.sort_unstable_by_key(|(node, _version)| node.clone());
+                combined.dedup_by_key(|(node, _version)| node.clone());
+
+                let (new_nodes, new_node_versions): (Vec<_>, Vec<_>) = combined.into_iter().unzip();
+                class.nodes = new_nodes;
+                class.versions = new_node_versions;
+
+                // class.nodes.sort_unstable();
+                // class.nodes.dedup();
 
                 trimmed += old_len - class.nodes.len();
             }
@@ -1550,7 +1578,6 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 // compute the new, correct value—you just took class.data which is the thing that
                 // is out of date!
                 let did_merge = self.analysis.merge(&mut class.data, node_data);
-                merge_min(&mut class.version, self.version);
                 if did_merge.0 {
                     self.analysis_pending.extend(class.parents.iter().copied());
                     N::modify(self, class_id)

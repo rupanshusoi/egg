@@ -46,7 +46,9 @@ where
         eclass
             .nodes
             .iter()
-            .filter(|n| node.matches(n))
+            .enumerate()
+            .filter(|(idx, n)| node.matches(n) && eclass.versions[*idx] == eclass.version)
+            .map(|(_, n)| n)
             .try_for_each(f)
     } else {
         debug_assert!(node.all(|id| id == Id::from(0)));
@@ -62,11 +64,18 @@ where
         }
         let mut matching = eclass.nodes[start..]
             .iter()
-            .take_while(|&n| n.discriminant() == discrim)
-            .filter(|n| node.matches(n));
+            .enumerate()
+            .take_while(|(_, n)| n.discriminant() == discrim)
+            .filter(|(idx, n)| node.matches(n) && eclass.versions[*idx] == eclass.version)
+            .map(|(_, n)| n);
         debug_assert_eq!(
             matching.clone().count(),
-            eclass.nodes.iter().filter(|n| node.matches(n)).count(),
+            eclass
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(idx, n)| node.matches(n) && eclass.versions[*idx] == eclass.version)
+                .count(),
             "matching node {:?}\nstart={}\n{:?} != {:?}\nnodes: {:?}",
             node,
             start,
