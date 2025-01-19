@@ -295,7 +295,7 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
                         self,
                         egraph,
                         egraph
-                            .latest_classes
+                            .newest_classes
                             .intersection(ids)
                             .collect::<HashSet<_>>()
                             .into_iter()
@@ -307,7 +307,7 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
             ENodeOrVar::Var(_) => rewrite::search_eclasses_with_limit(
                 self,
                 egraph,
-                egraph.latest_classes.iter().copied(),
+                egraph.newest_classes.iter().copied(),
                 limit,
             ),
         }

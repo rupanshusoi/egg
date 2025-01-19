@@ -5,7 +5,6 @@ use std::{
     marker::PhantomData,
 };
 
-use hashbrown::hash_map::Entry;
 #[cfg(feature = "serde-1")]
 use serde::{Deserialize, Serialize};
 
@@ -55,12 +54,12 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     /// The current version.
     version: usize,
     /// Externally visible eclasses at the current version. This is the transitive closure of
-    /// latest_classes and newly_added.
+    /// newest_classes and newly_added.
     pub whitelist: HashSet<Id>,
     /// Eclasses at the current version.
-    pub(crate) latest_classes: HashSet<Id>,
-    /// Nodes added after arriving at the current version that were already present.
-    newly_added: HashSet<Id>,
+    pub newest_classes: HashSet<Id>,
+    /// Eclasses containing nodes that were added at the current version but were already present.
+    newest_old_classes: HashSet<Id>,
     /// The `Analysis` given when creating this `EGraph`.
     pub analysis: N,
     /// The `Explain` used to explain equivalences in this `EGraph`.
@@ -127,8 +126,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         Self {
             whitelist: Default::default(),
             version: Default::default(),
-            newly_added: Default::default(),
-            latest_classes: Default::default(),
+            newest_old_classes: Default::default(),
+            newest_classes: Default::default(),
             analysis,
             classes: Default::default(),
             unionfind: Default::default(),
@@ -145,8 +144,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
     /// Increment the version.
     pub fn inc_version(&mut self) -> usize {
-        self.newly_added.clear();
-        self.latest_classes.clear();
+        self.newest_old_classes.clear();
+        self.newest_classes.clear();
         self.version += 1;
         self.version
     }
@@ -685,8 +684,8 @@ where
         EGraph {
             whitelist: Default::default(),
             version: src_egraph.version,
-            newly_added: todo!(),
-            latest_classes: todo!(),
+            newest_old_classes: todo!(),
+            newest_classes: todo!(),
             analysis: self.map_analysis(src_egraph.analysis),
             explain: None,
             unionfind: src_egraph.unionfind,
@@ -1086,7 +1085,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             let id = self.find(existing_id);
 
             // TODO: Is this slow?
-            self.newly_added.insert(id);
+            self.newest_old_classes.insert(id);
 
             // when explanations are enabled, we need a new representative for this expr
             if let Some(explain) = self.explain.as_mut() {
@@ -1106,7 +1105,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             }
         } else {
             let id = self.make_new_eclass(enode, original.clone());
-            self.latest_classes.insert(id);
+            self.newest_classes.insert(id);
 
             if let Some(explain) = self.explain.as_mut() {
                 explain.add(original, id, id);
@@ -1393,20 +1392,24 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     #[inline(never)]
     fn update_whitelist(&mut self) {
         // Canonicalize
-        self.newly_added = self.newly_added.iter().map(|id| self.find(*id)).collect();
-        self.latest_classes = self
-            .latest_classes
+        self.newest_old_classes = self
+            .newest_old_classes
+            .iter()
+            .map(|id| self.find(*id))
+            .collect();
+        self.newest_classes = self
+            .newest_classes
             .iter()
             .map(|id| self.find(*id))
             .collect();
 
         let mut whitelist = HashSet::default();
-        for id in self.latest_classes.iter() {
+        for id in self.newest_classes.iter() {
             if !whitelist.contains(id) {
                 self.add_reachable(*id, &mut whitelist);
             }
         }
-        for id in self.newly_added.iter() {
+        for id in self.newest_old_classes.iter() {
             if !whitelist.contains(id) {
                 self.add_reachable(*id, &mut whitelist);
             }
