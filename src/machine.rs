@@ -46,14 +46,16 @@ where
         eclass
             .nodes
             .iter()
-            .enumerate()
-            .filter(|(idx, n)| node.matches(n) && eclass.versions[*idx] == eclass.version)
-            .map(|(_, n)| n)
+            .filter(|n| node.matches(&n.node) && n.version == eclass.version)
+            .map(|n| &n.node)
             .try_for_each(f)
     } else {
         debug_assert!(node.all(|id| id == Id::from(0)));
         debug_assert!(eclass.nodes.windows(2).all(|w| w[0] < w[1]));
-        let mut start = eclass.nodes.binary_search(node).unwrap_or_else(|i| i);
+        let mut start = eclass
+            .nodes
+            .binary_search_by_key(&node, |n| &n.node)
+            .unwrap_or_else(|i| i);
         let discrim = node.discriminant();
         while start > 0 {
             if eclass.nodes[start - 1].discriminant() == discrim {
@@ -64,17 +66,15 @@ where
         }
         let mut matching = eclass.nodes[start..]
             .iter()
-            .enumerate()
-            .take_while(|(_, n)| n.discriminant() == discrim)
-            .filter(|(idx, n)| node.matches(n) && eclass.versions[*idx] == eclass.version)
-            .map(|(_, n)| n);
+            .take_while(|n| n.node.discriminant() == discrim)
+            .filter(|n| node.matches(&n.node) && n.version == eclass.version)
+            .map(|n| &n.node);
         debug_assert_eq!(
             matching.clone().count(),
             eclass
                 .nodes
                 .iter()
-                .enumerate()
-                .filter(|(idx, n)| node.matches(n) && eclass.versions[*idx] == eclass.version)
+                .filter(|n| node.matches(&n.node) && n.version == eclass.version)
                 .count(),
             "matching node {:?}\nstart={}\n{:?} != {:?}\nnodes: {:?}",
             node,
@@ -83,7 +83,7 @@ where
             eclass
                 .nodes
                 .iter()
-                .filter(|n| node.matches(n))
+                .filter(|n| node.matches(&n.node))
                 .collect::<HashSet<_>>(),
             eclass.nodes
         );

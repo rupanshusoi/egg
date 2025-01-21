@@ -5,6 +5,7 @@ use std::{
     marker::PhantomData,
 };
 
+use eclass::ENode;
 #[cfg(feature = "serde-1")]
 use serde::{Deserialize, Serialize};
 
@@ -59,7 +60,7 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     /// Eclasses at the current version.
     pub newest_classes: HashSet<Id>,
     /// Eclasses containing nodes that were added at the current version but were already present.
-    newest_old_classes: HashSet<Id>,
+    pub newest_old_classes: HashSet<Id>,
     /// The `Analysis` given when creating this `EGraph`.
     pub analysis: N,
     /// The `Explain` used to explain equivalences in this `EGraph`.
@@ -369,7 +370,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                         children[i] = prod;
                     }
 
-                    res.push((new_node, res_id));
+                    res.push((new_node.node, res_id));
                 }
             }
         }
@@ -668,12 +669,7 @@ where
     ) -> EClass<Self::L2, <Self::A2 as Analysis<Self::L2>>::Data> {
         EClass {
             id: src_eclass.id,
-            nodes: src_eclass
-                .nodes
-                .into_iter()
-                .map(|l| self.map_node(l))
-                .collect(),
-            versions: todo!(),
+            nodes: todo!(),
             data: self.map_data(src_eclass.data),
             version: src_eclass.version,
             parents: src_eclass.parents,
@@ -1081,9 +1077,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// assert_eq!(egraph.id_to_expr(fa), "(f a)".parse().unwrap());
     /// assert_eq!(egraph.id_to_expr(fb), "(f a)".parse().unwrap());
     /// ```
-    pub fn add_uncanonical(&mut self, mut enode: L) -> Id {
-        let original = enode.clone();
-        if let Some(existing_id) = self.lookup_internal(&mut enode) {
+    pub fn add_uncanonical(&mut self, mut raw_enode: L) -> Id {
+        let original = raw_enode.clone();
+        if let Some(existing_id) = self.lookup_internal(&mut raw_enode) {
             let id = self.find(existing_id);
 
             // TODO: Is this slow?
@@ -1106,6 +1102,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 existing_id
             }
         } else {
+            let enode = ENode {
+                node: raw_enode,
+                version: self.version,
+            };
             let id = self.make_new_eclass(enode, original.clone());
             self.newest_classes.insert(id);
 
@@ -1121,13 +1121,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     /// This function makes a new eclass in the egraph (but doesn't touch explanations)
-    fn make_new_eclass(&mut self, enode: L, original: L) -> Id {
+    fn make_new_eclass(&mut self, enode: ENode<L>, original: L) -> Id {
         let id = self.unionfind.make_set();
         log::trace!("  ...adding to {}", id);
         let class = EClass {
             id,
             nodes: vec![enode.clone()],
-            versions: vec![self.version],
             data: N::make(self, &original),
             version: self.version,
             parents: Default::default(),
@@ -1137,7 +1136,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         self.nodes.push(original);
 
         // add this enode to the parent lists of its children
-        enode.for_each(|child| {
+        enode.node.for_each(|child| {
             self[child].parents.push(id);
         });
 
@@ -1149,7 +1148,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             .entry(enode.discriminant())
             .or_default()
             .insert(id);
-        assert!(self.memo.insert(enode, id).is_none());
+        assert!(self.memo.insert(enode.node, id).is_none());
 
         id
     }
@@ -1303,10 +1302,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         }
 
         concat_vecs(&mut class1.nodes, class2.nodes);
-        concat_vecs(&mut class1.versions, class2.versions);
         concat_vecs(&mut class1.parents, class2.parents);
 
-        debug_assert!(class1.versions.iter().all(|v| *v <= class1.version));
+        debug_assert!(class1.nodes.iter().all(|n| n.version <= class1.version));
 
         N::modify(self, id1);
         true
@@ -1441,26 +1439,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 class
                     .nodes
                     .iter_mut()
-                    .for_each(|n| n.update_children(|id| uf.find_mut(id)));
+                    .for_each(|n| n.node.update_children(|id| uf.find_mut(id)));
 
-                // We need to keep nodes and versions in sync through sorting and
-                // deduplication. This might be slow.
-                let mut combined = class
-                    .nodes
-                    .clone()
-                    .into_iter()
-                    .zip(class.versions.clone().into_iter())
-                    .collect::<Vec<_>>();
-
-                combined.sort_unstable_by_key(|(node, _version)| node.clone());
-                combined.dedup_by_key(|(node, _version)| node.clone());
-
-                let (new_nodes, new_node_versions): (Vec<_>, Vec<_>) = combined.into_iter().unzip();
-                class.nodes = new_nodes;
-                class.versions = new_node_versions;
-
-                // class.nodes.sort_unstable();
-                // class.nodes.dedup();
+                class.nodes.sort_unstable_by(|n1, n2| n1.node.cmp(&n2.node));
+                class.nodes.dedup();
 
                 trimmed += old_len - class.nodes.len();
             }
@@ -1515,7 +1497,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             assert_eq!(e, self.find(e));
             assert_eq!(
                 Some(e),
-                self.memo.get(n).map(|id| self.find(*id)),
+                self.memo.get(&n.node).map(|id| self.find(*id)),
                 "Entry for {:?} at {} in test_memo was incorrect",
                 n,
                 e

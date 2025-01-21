@@ -197,7 +197,7 @@ where
             writeln!(f, "  subgraph cluster_{} {{", class.id)?;
             writeln!(f, "    style=dotted")?;
             for (i, node) in class.iter().enumerate() {
-                writeln!(f, "    {}.{}[label = \"{}\"]", class.id, i, node)?;
+                writeln!(f, "    {}.{}[label = \"{}\"]", class.id, i, node.node)?;
             }
             writeln!(f, "  }}")?;
         }
@@ -205,9 +205,9 @@ where
         for class in self.egraph.classes() {
             for (i_in_class, node) in class.iter().enumerate() {
                 let mut arg_i = 0;
-                node.try_for_each(|child| {
+                node.node.try_for_each(|child| {
                     // write the edge to the child, but clip it to the eclass with lhead
-                    let (anchor, label) = self.edge(arg_i, node.len());
+                    let (anchor, label) = self.edge(arg_i, node.node.len());
                     let child_leader = self.egraph.find(child);
 
                     if child_leader == class.id {
