@@ -59,7 +59,8 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     pub whitelist: HashSet<Id>,
     /// Eclasses at the current version.
     pub newest_classes: HashSet<Id>,
-    /// Eclasses containing nodes that were added at the current version but were already present.
+    /// Eclasses containing nodes that were added at the current version but were already present
+    /// and were not forced.
     pub newest_old_classes: HashSet<Id>,
     /// The `Analysis` given when creating this `EGraph`.
     pub analysis: N,
@@ -500,8 +501,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         left_expr: &RecExpr<L>,
         right_expr: &RecExpr<L>,
     ) -> Explanation<L> {
-        let left = self.add_expr_uncanonical(left_expr);
-        let right = self.add_expr_uncanonical(right_expr);
+        let left = self.add_expr_uncanonical(left_expr, false);
+        let right = self.add_expr_uncanonical(right_expr, false);
 
         self.explain_id_equivalence(left, right)
     }
@@ -541,7 +542,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Note that this function can be called again to explain any intermediate terms
     /// used in the output [`Explanation`].
     pub fn explain_existance(&mut self, expr: &RecExpr<L>) -> Explanation<L> {
-        let id = self.add_expr_uncanonical(expr);
+        let id = self.add_expr_uncanonical(expr, false);
         self.explain_existance_id(id)
     }
 
@@ -576,7 +577,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         right_pattern: &PatternAst<L>,
         subst: &Subst,
     ) -> Explanation<L> {
-        let left = self.add_expr_uncanonical(left_expr);
+        let left = self.add_expr_uncanonical(left_expr, false);
         let right = self.add_instantiation_noncanonical(right_pattern, subst);
 
         if self.find(left) != self.find(right) {
@@ -879,21 +880,28 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     ///
     /// [`add_expr`]: EGraph::add_expr()
     pub fn add_expr(&mut self, expr: &RecExpr<L>) -> Id {
-        let id = self.add_expr_uncanonical(expr);
+        let id = self.add_expr_uncanonical(expr, false);
+        self.find(id)
+    }
+
+    /// Like `add_expr` but ensures that every enode is at the latest version, even if already
+    /// present.
+    pub fn add_expr_forced(&mut self, expr: &RecExpr<L>) -> Id {
+        let id = self.add_expr_uncanonical(expr, true);
         self.find(id)
     }
 
     /// Similar to [`add_expr`](EGraph::add_expr) but the `Id` returned may not be canonical
     ///
     /// Calling [`id_to_expr`](EGraph::id_to_expr) on this `Id` return a copy of `expr` when explanations are enabled
-    pub fn add_expr_uncanonical(&mut self, expr: &RecExpr<L>) -> Id {
+    pub fn add_expr_uncanonical(&mut self, expr: &RecExpr<L>, force: bool) -> Id {
         let nodes = expr.as_ref();
         let mut new_ids = Vec::with_capacity(nodes.len());
         let mut new_node_q = Vec::with_capacity(nodes.len());
         for node in nodes {
             let new_node = node.clone().map_children(|i| new_ids[usize::from(i)]);
             let size_before = self.unionfind.size();
-            let next_id = self.add_uncanonical(new_node);
+            let next_id = self.add_uncanonical(new_node, force);
             if self.unionfind.size() > size_before {
                 new_node_q.push(true);
             } else {
@@ -939,7 +947,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 ENodeOrVar::ENode(node) => {
                     let new_node = node.clone().map_children(|i| new_ids[usize::from(i)]);
                     let size_before = self.unionfind.size();
-                    let next_id = self.add_uncanonical(new_node);
+                    let next_id = self.add_uncanonical(new_node, false);
                     if self.unionfind.size() > size_before {
                         new_node_q.push(true);
                     } else {
@@ -1034,7 +1042,13 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     ///
     /// [`add`]: EGraph::add()
     pub fn add(&mut self, enode: L) -> Id {
-        let id = self.add_uncanonical(enode);
+        let id = self.add_uncanonical(enode, false);
+        self.find(id)
+    }
+
+    /// Like `add` but ensures that the enode is at the latest version, even if already present.
+    pub fn add_forced(&mut self, enode: L) -> Id {
+        let id = self.add_uncanonical(enode, true);
         self.find(id)
     }
 
@@ -1047,13 +1061,13 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// ```
     /// # use egg::*;
     /// let mut egraph: EGraph<SymbolLang, ()> = EGraph::default().with_explanations_enabled();
-    /// let a = egraph.add_uncanonical(SymbolLang::leaf("a"));
-    /// let b = egraph.add_uncanonical(SymbolLang::leaf("b"));
+    /// let a = egraph.add_uncanonical(SymbolLang::leaf("a"), false);
+    /// let b = egraph.add_uncanonical(SymbolLang::leaf("b"), false);
     /// egraph.union(a, b);
     /// egraph.rebuild();
     ///
-    /// let fa = egraph.add_uncanonical(SymbolLang::new("f", vec![a]));
-    /// let fb = egraph.add_uncanonical(SymbolLang::new("f", vec![b]));
+    /// let fa = egraph.add_uncanonical(SymbolLang::new("f", vec![a]), false);
+    /// let fb = egraph.add_uncanonical(SymbolLang::new("f", vec![b]), false);
     ///
     /// assert_eq!(egraph.id_to_expr(fa), "(f a)".parse().unwrap());
     /// assert_eq!(egraph.id_to_expr(fb), "(f b)".parse().unwrap());
@@ -1066,21 +1080,37 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// ```
     /// # use egg::*;
     /// let mut egraph: EGraph<SymbolLang, ()> = EGraph::default().with_explanations_disabled();
-    /// let a = egraph.add_uncanonical(SymbolLang::leaf("a"));
-    /// let b = egraph.add_uncanonical(SymbolLang::leaf("b"));
+    /// let a = egraph.add_uncanonical(SymbolLang::leaf("a"), false);
+    /// let b = egraph.add_uncanonical(SymbolLang::leaf("b"), false);
     /// egraph.union(a, b);
     /// egraph.rebuild();
     ///
-    /// let fa = egraph.add_uncanonical(SymbolLang::new("f", vec![a]));
-    /// let fb = egraph.add_uncanonical(SymbolLang::new("f", vec![b]));
+    /// let fa = egraph.add_uncanonical(SymbolLang::new("f", vec![a]), false);
+    /// let fb = egraph.add_uncanonical(SymbolLang::new("f", vec![b]), false);
     ///
     /// assert_eq!(egraph.id_to_expr(fa), "(f a)".parse().unwrap());
     /// assert_eq!(egraph.id_to_expr(fb), "(f a)".parse().unwrap());
     /// ```
-    pub fn add_uncanonical(&mut self, mut raw_enode: L) -> Id {
+    pub fn add_uncanonical(&mut self, mut raw_enode: L, force: bool) -> Id {
         let original = raw_enode.clone();
         if let Some(existing_id) = self.lookup_internal(&mut raw_enode) {
             let id = self.find(existing_id);
+            if force {
+                let idx_and_enode = self[id].nodes.iter().enumerate().find(|(_, enode)| {
+                    if enode.node.discriminant() == raw_enode.discriminant() {
+                        enode.node == raw_enode
+                    } else {
+                        false
+                    }
+                });
+                // If we didn't find a match then the analysis is pruning enodes, in which
+                // case do nothing since we don't know which node to force...
+                if let Some((idx, _)) = idx_and_enode {
+                    self[id].nodes[idx].version = self.version;
+                    self[id].version = self.version;
+                    self.newest_classes.insert(id);
+                }
+            }
 
             // TODO: Is this slow?
             self.newest_old_classes.insert(id);
