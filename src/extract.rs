@@ -101,6 +101,7 @@ impl<'a> CostFunction<SymbolLang> for EGraphCostFn<'a> {
 
 let mut egraph = EGraph::<SymbolLang, MyAnalysis>::default();
 let id = egraph.add_expr(&"(foo bar)".parse().unwrap());
+egraph.rebuild();
 let cost_func = EGraphCostFn { egraph: &egraph };
 let mut extractor = Extractor::new(&egraph, cost_func);
 let _ = extractor.find_best(id);
