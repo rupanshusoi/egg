@@ -1458,13 +1458,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     #[inline(never)]
-    // updated_classes are the parents of every removed node.
-    fn rebuild_classes(&mut self, updated_classes: HashSet<Id>) -> usize {
+    fn rebuild_classes(&mut self, need_canon: HashSet<Id>) -> usize {
         let mut trimmed = 0;
         let uf = &mut self.unionfind;
 
         for class in self.classes.values_mut() {
-            if updated_classes.contains(&class.id) {
+            if need_canon.contains(&class.id) {
                 let old_len = class.len();
                 class
                     .nodes
@@ -1538,28 +1537,17 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     #[inline(never)]
-    // As far as I can tell this performs all the unions that have to be performed at this point,
-    // and then rebuild_classes canonicalizes ids afterwards—all it does is call find_mut on every
-    // child, and also recreates classes_by_op. Importantly, there is no information flow from
-    // here to rebuild_classes. Hence the traversal over the whole egraph that we see there. We
-    // need a way to tell rebuild_classes which classes have to be rebuilt and which do not. Surely
-    // that has something to do with what unions were performed?
     fn process_unions(&mut self) -> (usize, HashSet<Id>) {
         let mut n_unions = 0;
-        let mut updated_classes = HashSet::default();
+        // Eclasses with at least one enode that must be recanonicalized
+        let mut need_canon = HashSet::default();
 
         while !self.pending.is_empty() || !self.analysis_pending.is_empty() {
-            // Somewhere in a galaxy far away a child of this enode got unioned. Now, we must look
-            // at this enode to see if it has become congruent with another eclass. It is confusing
-            // to call this `class` when you're using it as an enode really.
             while let Some(class) = self.pending.pop() {
-                updated_classes.insert(self.find_mut(class));
-                // Find what this parent looked like in its infancy.
+                need_canon.insert(self.find_mut(class));
                 let mut node = self.nodes[usize::from(class)].clone();
-                // Bring it forward in time, i.e. canonicalize it.
                 node.update_children(|id| self.find_mut(id));
                 if let Some(memo_class) = self.memo.insert(node, class) {
-                    // perform_union will add more parents to pending if reqd
                     let did_something = self.perform_union(
                         memo_class,
                         class,
@@ -1570,25 +1558,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 }
             }
 
-            // I don't think this part can affect self.pending. So why didn't they write these as
-            // two separate while-loops?
-            // analysis_pending just means that eclass's analysis data might need to be updated,
-            // because analysis data for one of its children changed.
             while let Some(class_id) = self.analysis_pending.pop() {
-                // Find the node this id originally was (i.e. when it was inserted)
                 let node = self.nodes[usize::from(class_id)].clone();
                 let class_id = self.find_mut(class_id);
                 let node_data = N::make(self, &node);
                 let class = self.classes.get_mut(&class_id).unwrap();
 
-                // Is this even correct? I thought what we were supposed to do is find the current
-                // analysis for this eclass, then compute what it should be (the current one is out
-                // of date presumably), and then union those. But instead this code is computing
-                // what it originally was and unioning that with what it currently is? That seems
-                // doubly wrong. First, we should not care about what it was at the time of
-                // insertion. Many changes might have happened since then. Second, you didn't even
-                // compute the new, correct value—you just took class.data which is the thing that
-                // is out of date!
                 let did_merge = self.analysis.merge(&mut class.data, node_data);
                 if did_merge.0 {
                     self.analysis_pending.extend(class.parents.iter().copied());
@@ -1600,7 +1575,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         assert!(self.pending.is_empty());
         assert!(self.analysis_pending.is_empty());
 
-        (n_unions, updated_classes)
+        (n_unions, need_canon)
     }
 
     /// Restores the egraph invariants of congruence and enode uniqueness.
@@ -1646,10 +1621,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         let og_start = Instant::now();
 
-        let (n_unions, updated_classes) = self.process_unions();
+        let (n_unions, need_canon) = self.process_unions();
         let unions = og_start.elapsed();
         let start = Instant::now();
-        let trimmed_nodes = self.rebuild_classes(updated_classes);
+        let trimmed_nodes = self.rebuild_classes(need_canon);
         let rc = start.elapsed();
         let start = Instant::now();
         self.update_whitelist();
