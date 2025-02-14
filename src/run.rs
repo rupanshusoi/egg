@@ -176,7 +176,7 @@ impl RunnerLimits {
             return Err(StopReason::TimeLimit(elapsed.as_secs_f64()));
         }
 
-        let size = egraph.total_size();
+        let size = egraph.total_number_of_whitelist_nodes();
         if size > self.node_limit {
             return Err(StopReason::NodeLimit(size));
         }

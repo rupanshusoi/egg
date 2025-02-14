@@ -57,6 +57,8 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     /// Externally visible eclasses at the current version. This is the transitive closure of
     /// newest_classes and newly_added.
     pub whitelist: HashSet<Id>,
+    /// Number of enodes in the whitelist
+    pub n_whitelist_nodes: usize,
     /// Eclasses at the current version.
     pub newest_classes: HashSet<Id>,
     /// Eclasses containing nodes that were added at the current version but were already present
@@ -128,6 +130,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     pub fn new(analysis: N) -> Self {
         Self {
             whitelist: Default::default(),
+            n_whitelist_nodes: 0,
             version: Default::default(),
             newest_old_classes: Default::default(),
             newest_classes: Default::default(),
@@ -213,9 +216,11 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
     /// Returns the total number of nodes in whitelisted eclasses.
     pub fn total_number_of_whitelist_nodes(&self) -> usize {
-        self.whitelist
-            .iter()
-            .fold(0, |acc, id| acc + self[*id].nodes.len())
+        if self.version == 0 {
+            self.total_size()
+        } else {
+            self.n_whitelist_nodes
+        }
     }
 
     /// Enable explanations for this `EGraph`.
@@ -682,6 +687,7 @@ where
         let kv_map = |(k, v): (L, Id)| (self.map_node(k), v);
         EGraph {
             whitelist: Default::default(),
+            n_whitelist_nodes: todo!(),
             version: src_egraph.version,
             newest_old_classes: todo!(),
             newest_classes: todo!(),
@@ -1396,14 +1402,15 @@ impl<L: Language + Display, N: Analysis<L>> EGraph<L, N> {
 // All the rebuilding stuff
 impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     // Thanks ChatGPT
-    pub(crate) fn add_reachable(&self, start_id: Id, whitelist: &mut HashSet<Id>) {
+    pub(crate) fn add_reachable(&self, start_id: Id, whitelist: &mut HashSet<Id>) -> usize {
         let mut stack = Vec::new();
+        let mut n_whitelist_nodes = 0;
 
         // Find a consistent representative for the start_id.
         let start_repr = self.find(start_id);
         // If it's already visited, no work to do
         if whitelist.contains(&start_repr) {
-            return;
+            return n_whitelist_nodes;
         }
         // Mark it visited and start the traversal
         whitelist.insert(start_repr);
@@ -1413,6 +1420,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             // current is already visited here.
 
             // For each node in the equivalence class represented by `current`
+            n_whitelist_nodes += self[current].nodes.len();
             for node in self[current].nodes.iter() {
                 for child in node.children().iter() {
                     // Normalize the child to its representative
@@ -1426,6 +1434,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 }
             }
         }
+
+        n_whitelist_nodes
     }
 
     #[inline(never)]
@@ -1443,18 +1453,20 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             .collect();
 
         let mut whitelist = HashSet::default();
+        let mut n_whitelist_nodes = 0;
         for id in self.newest_classes.iter() {
             if !whitelist.contains(id) {
-                self.add_reachable(*id, &mut whitelist);
+                n_whitelist_nodes += self.add_reachable(*id, &mut whitelist);
             }
         }
         for id in self.newest_old_classes.iter() {
             if !whitelist.contains(id) {
-                self.add_reachable(*id, &mut whitelist);
+                n_whitelist_nodes += self.add_reachable(*id, &mut whitelist);
             }
         }
 
         self.whitelist = whitelist;
+        self.n_whitelist_nodes = n_whitelist_nodes;
     }
 
     #[inline(never)]
