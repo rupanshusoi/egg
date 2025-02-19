@@ -46,7 +46,7 @@ where
         eclass
             .nodes
             .iter()
-            .filter(|n| node.matches(&n.node) && n.version == eclass.version)
+            .filter(|n| node.matches(&n.node))
             .map(|n| &n.node)
             .try_for_each(f)
     } else {
@@ -67,14 +67,14 @@ where
         let mut matching = eclass.nodes[start..]
             .iter()
             .take_while(|n| n.node.discriminant() == discrim)
-            .filter(|n| node.matches(&n.node) && n.version == eclass.version)
+            .filter(|n| node.matches(&n.node))
             .map(|n| &n.node);
         debug_assert_eq!(
             matching.clone().count(),
             eclass
                 .nodes
                 .iter()
-                .filter(|n| node.matches(&n.node) && n.version == eclass.version)
+                .filter(|n| node.matches(&n.node))
                 .count(),
             "matching node {:?}\nstart={}\n{:?} != {:?}\nnodes: {:?}",
             node,
@@ -121,7 +121,8 @@ impl Machine {
                 }
                 Instruction::Scan { out } => {
                     let remaining_instructions = instructions.as_slice();
-                    for class in egraph.classes() {
+                    for id in &egraph.whitelist {
+                        let class = &egraph[*id];
                         self.reg.truncate(out.0 as usize);
                         self.reg.push(class.id);
                         self.run(egraph, remaining_instructions, subst, yield_fn)?

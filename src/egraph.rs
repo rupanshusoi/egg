@@ -1097,29 +1097,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// assert_eq!(egraph.id_to_expr(fa), "(f a)".parse().unwrap());
     /// assert_eq!(egraph.id_to_expr(fb), "(f a)".parse().unwrap());
     /// ```
-    pub fn add_uncanonical(&mut self, mut raw_enode: L, force: bool) -> Id {
+    pub fn add_uncanonical(&mut self, mut raw_enode: L, _force: bool) -> Id {
         let original = raw_enode.clone();
         if let Some(existing_id) = self.lookup_internal(&mut raw_enode) {
             let id = self.find(existing_id);
-            if force {
-                let idx_and_enode = self[id].nodes.iter().enumerate().find(|(_, enode)| {
-                    if enode.node.discriminant() == raw_enode.discriminant() {
-                        enode.node == raw_enode
-                    } else {
-                        false
-                    }
-                });
-                // If we didn't find a match then the analysis is pruning enodes, in which
-                // case do nothing since we don't know which node to force...
-                if let Some((idx, _)) = idx_and_enode {
-                    self[id].nodes[idx].version = self.version;
-                    self[id].version = self.version;
-                    self.newest_classes.insert(id);
-                }
-            }
-
-            // TODO: Is this slow?
-            self.newest_old_classes.insert(id);
+            self[id].version = self.version;
+            self.newest_classes.insert(id);
 
             // when explanations are enabled, we need a new representative for this expr
             if let Some(explain) = self.explain.as_mut() {
@@ -1140,7 +1123,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         } else {
             let enode = ENode {
                 node: raw_enode,
-                version: self.version,
+                version: 0,
             };
             let id = self.make_new_eclass(enode, original.clone());
             self.newest_classes.insert(id);
@@ -1327,6 +1310,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         merge_max(&mut class1.version, class2.version);
         if class1.version == self.version {
             self.newest_classes.insert(id1);
+        }
+        if class2.version == self.version {
+            assert!(self.newest_classes.remove(&class2.id));
         }
 
         let did_merge = self.analysis.merge(&mut class1.data, class2.data);
@@ -1634,26 +1620,15 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let og_start = Instant::now();
 
         let (n_unions, need_canon) = self.process_unions();
-        let unions = og_start.elapsed();
-        let start = Instant::now();
         let trimmed_nodes = self.rebuild_classes(need_canon);
-        let rc = start.elapsed();
-        let start = Instant::now();
         self.update_whitelist();
-        let whitelist = start.elapsed();
-        println!(
-            "Unions: {}\nRebuild classes: {}\nUpdate whitelist: {}\n",
-            unions.as_secs_f64(),
-            rc.as_secs_f64(),
-            whitelist.as_secs_f64()
-        );
 
         let elapsed = og_start.elapsed();
         info!(
             concat!(
                 "REBUILT! in {}.{:03}s\n",
                 "  Old: hc size {}, eclasses: {}\n",
-                "  New: hc size {}, eclasses: {}\n",
+                "  New: hc size {}, eclasses: {}, whitelist: {}, newest_classes:{}, newest_old_classes: {}\n",
                 "  unions: {}, trimmed nodes: {}"
             ),
             elapsed.as_secs(),
@@ -1662,6 +1637,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             old_n_eclasses,
             self.memo.len(),
             self.number_of_classes(),
+            self.whitelist.len(),
+            self.newest_classes.len(),
+            self.newest_old_classes.len(),
             n_unions,
             trimmed_nodes,
         );

@@ -319,9 +319,7 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
         eclass: Id,
         limit: usize,
     ) -> Option<SearchMatches<L>> {
-        if egraph[eclass].version < egraph.get_version() {
-            return None;
-        } else if egraph[eclass].version > egraph.get_version() {
+        if egraph[eclass].version != egraph.get_version() {
             unreachable!()
         }
 

@@ -275,15 +275,15 @@ where
             }
         }
 
-        for class in self.egraph.classes() {
-            if !self.costs.contains_key(&class.id) {
-                log::warn!(
-                    "Failed to compute cost for eclass {}: {:?}",
-                    class.id,
-                    class.nodes
-                )
-            }
-        }
+        // for class in self.egraph.classes() {
+        //     if !self.costs.contains_key(&class.id) {
+        //         log::warn!(
+        //             "Failed to compute cost for eclass {}: {:?}",
+        //             class.id,
+        //             class.nodes
+        //         )
+        //     }
+        // }
     }
 
     fn make_pass(&mut self, eclass: &EClass<L, N::Data>) -> Option<(CF::Cost, L)> {
