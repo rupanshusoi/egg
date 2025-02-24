@@ -2087,14 +2087,14 @@ fn simple_explain_union_trusted() {
     crate::init_logger();
     let mut egraph = EGraph::new(()).with_explanations_enabled();
 
-    let a = egraph.add_uncanonical(SymbolLang::leaf("a"), false);
-    let b = egraph.add_uncanonical(SymbolLang::leaf("b"), false);
-    let c = egraph.add_uncanonical(SymbolLang::leaf("c"), false);
-    let d = egraph.add_uncanonical(SymbolLang::leaf("d"), false);
+    let a = egraph.add_uncanonical(SymbolLang::leaf("a"));
+    let b = egraph.add_uncanonical(SymbolLang::leaf("b"));
+    let c = egraph.add_uncanonical(SymbolLang::leaf("c"));
+    let d = egraph.add_uncanonical(SymbolLang::leaf("d"));
     egraph.union_trusted(a, b, "a=b");
     egraph.rebuild();
-    let fa = egraph.add_uncanonical(SymbolLang::new("f", vec![a]), false);
-    let fb = egraph.add_uncanonical(SymbolLang::new("f", vec![b]), false);
+    let fa = egraph.add_uncanonical(SymbolLang::new("f", vec![a]));
+    let fb = egraph.add_uncanonical(SymbolLang::new("f", vec![b]));
     egraph.union_trusted(c, fa, "c=fa");
     egraph.union_trusted(d, fb, "d=fb");
     egraph.rebuild();
