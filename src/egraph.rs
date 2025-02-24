@@ -152,6 +152,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     pub fn inc_version(&mut self) -> usize {
         self.newest_old_classes.clear();
         self.newest_classes.clear();
+        self.whitelist.clear();
         self.version += 1;
         self.version
     }
@@ -1101,8 +1102,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let original = raw_enode.clone();
         if let Some(existing_id) = self.lookup_internal(&mut raw_enode) {
             let id = self.find(existing_id);
-            self[id].version = self.version;
-            self.newest_classes.insert(id);
+            if self[id].len() == 1 {
+                self[id].version = self.version;
+                self.newest_classes.insert(id);
+            } else {
+                self.newest_old_classes.insert(id);
+            }
 
             // when explanations are enabled, we need a new representative for this expr
             if let Some(explain) = self.explain.as_mut() {
@@ -1307,13 +1312,16 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         self.pending.extend(class2.parents.iter().copied());
 
-        merge_max(&mut class1.version, class2.version);
+        merge_min(&mut class1.version, class2.version);
         if class1.version == self.version {
             self.newest_classes.insert(id1);
+            self.newest_old_classes.remove(&id1);
+        } else {
+            self.newest_classes.remove(&id1);
+            self.newest_old_classes.insert(id1);
         }
-        if class2.version == self.version {
-            assert!(self.newest_classes.remove(&class2.id));
-        }
+        self.newest_classes.remove(&class2.id);
+        self.newest_old_classes.remove(&class2.id);
 
         let did_merge = self.analysis.merge(&mut class1.data, class2.data);
         if did_merge.0 {
@@ -1404,6 +1412,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         while let Some(current) = stack.pop() {
             // current is already visited here.
+
+            // We warm the inc egraph with x. So afterwards, don't explore further from it.
+            if self.version > 0 && usize::from(current) == 0 {
+                n_whitelist_nodes += 1;
+                continue;
+            }
 
             // For each node in the equivalence class represented by `current`
             n_whitelist_nodes += self[current].nodes.len();
