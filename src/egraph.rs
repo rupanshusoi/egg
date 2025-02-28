@@ -54,16 +54,8 @@ You must call [`EGraph::rebuild`] after deserializing an e-graph!
 pub struct EGraph<L: Language, N: Analysis<L>> {
     /// The current version.
     version: usize,
-    /// Externally visible eclasses at the current version. This is the transitive closure of
-    /// newest_classes and newly_added.
-    pub whitelist: HashSet<Id>,
-    /// Number of enodes in the whitelist
-    pub n_whitelist_nodes: usize,
     /// Eclasses at the current version.
     pub newest_classes: HashSet<Id>,
-    /// Eclasses containing nodes that were added at the current version but were already present
-    /// and were not forced.
-    pub newest_old_classes: HashSet<Id>,
     /// The `Analysis` given when creating this `EGraph`.
     pub analysis: N,
     /// The `Explain` used to explain equivalences in this `EGraph`.
@@ -129,10 +121,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Creates a new, empty `EGraph` with the given `Analysis`
     pub fn new(analysis: N) -> Self {
         Self {
-            whitelist: Default::default(),
-            n_whitelist_nodes: 0,
             version: Default::default(),
-            newest_old_classes: Default::default(),
             newest_classes: Default::default(),
             analysis,
             classes: Default::default(),
@@ -150,9 +139,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
     /// Increment the version.
     pub fn inc_version(&mut self) -> usize {
-        self.newest_old_classes.clear();
         self.newest_classes.clear();
-        self.whitelist.clear();
         self.version += 1;
         self.version
     }
@@ -213,15 +200,6 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Returns the number of eclasses in the egraph.
     pub fn number_of_classes(&self) -> usize {
         self.classes.len()
-    }
-
-    /// Returns the total number of nodes in whitelisted eclasses.
-    pub fn total_number_of_whitelist_nodes(&self) -> usize {
-        if self.version == 0 {
-            self.total_size()
-        } else {
-            self.n_whitelist_nodes
-        }
     }
 
     /// Enable explanations for this `EGraph`.
@@ -687,10 +665,7 @@ where
     fn map_egraph(&self, src_egraph: EGraph<L, A>) -> EGraph<Self::L2, Self::A2> {
         let kv_map = |(k, v): (L, Id)| (self.map_node(k), v);
         EGraph {
-            whitelist: Default::default(),
-            n_whitelist_nodes: todo!(),
             version: src_egraph.version,
-            newest_old_classes: todo!(),
             newest_classes: todo!(),
             analysis: self.map_analysis(src_egraph.analysis),
             explain: None,
@@ -895,13 +870,18 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     ///
     /// Calling [`id_to_expr`](EGraph::id_to_expr) on this `Id` return a copy of `expr` when explanations are enabled
     pub fn add_expr_uncanonical(&mut self, expr: &RecExpr<L>) -> Id {
+        self.add_expr_uncanonical_internal(expr)
+    }
+
+    /// Returns the uncanonical Id for every enode in the expr
+    pub fn add_expr_uncanonical_internal(&mut self, expr: &RecExpr<L>) -> Id {
         let nodes = expr.as_ref();
-        let mut new_ids = Vec::with_capacity(nodes.len());
+        let mut new_ids: Vec<Id> = Vec::with_capacity(nodes.len());
         let mut new_node_q = Vec::with_capacity(nodes.len());
         for node in nodes {
             let new_node = node.clone().map_children(|i| new_ids[usize::from(i)]);
             let size_before = self.unionfind.size();
-            let next_id = self.add_uncanonical(new_node);
+            let next_id = self.add_uncanonical_internal(new_node);
             if self.unionfind.size() > size_before {
                 new_node_q.push(true);
             } else {
@@ -1046,6 +1026,51 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         self.find(id)
     }
 
+    /// Like `add_uncanonical` but says if the enode was found in the hashcons or not
+    pub fn add_uncanonical_internal(&mut self, mut raw_enode: L) -> Id {
+        let original = raw_enode.clone();
+        if let Some(existing_id) = self.lookup_internal(&mut raw_enode) {
+            let id = self.find(existing_id);
+            if self[id].len() == 1 {
+                self[id].version = self.version;
+                self.newest_classes.insert(id);
+            }
+
+            // when explanations are enabled, we need a new representative for this expr
+            if let Some(explain) = self.explain.as_mut() {
+                if let Some(existing_explain) = explain.uncanon_memo.get(&original) {
+                    *existing_explain
+                } else {
+                    let new_id = self.unionfind.make_set();
+                    explain.add(original.clone(), new_id, new_id);
+                    debug_assert_eq!(Id::from(self.nodes.len()), new_id);
+                    self.nodes.push(original);
+                    self.unionfind.union(id, new_id);
+                    explain.union(existing_id, new_id, Justification::Congruence, true);
+                    new_id
+                }
+            } else {
+                existing_id
+            }
+        } else {
+            let enode = ENode {
+                node: raw_enode,
+                version: 0,
+            };
+            let id = self.make_new_eclass(enode, original.clone());
+            self.newest_classes.insert(id);
+
+            if let Some(explain) = self.explain.as_mut() {
+                explain.add(original, id, id);
+            }
+
+            // now that we updated explanations, run the analysis for the new eclass
+            N::modify(self, id);
+            self.clean = false;
+            id
+        }
+    }
+
     /// Similar to [`add`](EGraph::add) but the `Id` returned may not be canonical
     ///
     /// When explanations are enabled calling [`id_to_expr`](EGraph::id_to_expr) on this `Id` will
@@ -1085,50 +1110,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// assert_eq!(egraph.id_to_expr(fa), "(f a)".parse().unwrap());
     /// assert_eq!(egraph.id_to_expr(fb), "(f a)".parse().unwrap());
     /// ```
-    pub fn add_uncanonical(&mut self, mut raw_enode: L) -> Id {
-        let original = raw_enode.clone();
-        if let Some(existing_id) = self.lookup_internal(&mut raw_enode) {
-            let id = self.find(existing_id);
-            if self[id].len() == 1 {
-                self[id].version = self.version;
-                self.newest_classes.insert(id);
-            } else {
-                self.newest_old_classes.insert(id);
-            }
-
-            // when explanations are enabled, we need a new representative for this expr
-            if let Some(explain) = self.explain.as_mut() {
-                if let Some(existing_explain) = explain.uncanon_memo.get(&original) {
-                    *existing_explain
-                } else {
-                    let new_id = self.unionfind.make_set();
-                    explain.add(original.clone(), new_id, new_id);
-                    debug_assert_eq!(Id::from(self.nodes.len()), new_id);
-                    self.nodes.push(original);
-                    self.unionfind.union(id, new_id);
-                    explain.union(existing_id, new_id, Justification::Congruence, true);
-                    new_id
-                }
-            } else {
-                existing_id
-            }
-        } else {
-            let enode = ENode {
-                node: raw_enode,
-                version: 0,
-            };
-            let id = self.make_new_eclass(enode, original.clone());
-            self.newest_classes.insert(id);
-
-            if let Some(explain) = self.explain.as_mut() {
-                explain.add(original, id, id);
-            }
-
-            // now that we updated explanations, run the analysis for the new eclass
-            N::modify(self, id);
-            self.clean = false;
-            id
-        }
+    pub fn add_uncanonical(&mut self, raw_enode: L) -> Id {
+        self.add_uncanonical_internal(raw_enode)
     }
 
     /// This function makes a new eclass in the egraph (but doesn't touch explanations)
@@ -1302,13 +1285,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         merge_min(&mut class1.version, class2.version);
         if class1.version == self.version {
             self.newest_classes.insert(id1);
-            self.newest_old_classes.remove(&id1);
         } else {
             self.newest_classes.remove(&id1);
-            self.newest_old_classes.insert(id1);
         }
         self.newest_classes.remove(&class2.id);
-        self.newest_old_classes.remove(&class2.id);
 
         let did_merge = self.analysis.merge(&mut class1.data, class2.data);
         if did_merge.0 {
@@ -1382,80 +1362,6 @@ impl<L: Language + Display, N: Analysis<L>> EGraph<L, N> {
 
 // All the rebuilding stuff
 impl<L: Language, N: Analysis<L>> EGraph<L, N> {
-    // Thanks ChatGPT
-    pub(crate) fn add_reachable(&self, start_id: Id, whitelist: &mut HashSet<Id>) -> usize {
-        let mut stack = Vec::new();
-        let mut n_whitelist_nodes = 0;
-
-        // Find a consistent representative for the start_id.
-        let start_repr = self.find(start_id);
-        // If it's already visited, no work to do
-        if whitelist.contains(&start_repr) {
-            return n_whitelist_nodes;
-        }
-        // Mark it visited and start the traversal
-        whitelist.insert(start_repr);
-        stack.push(start_repr);
-
-        while let Some(current) = stack.pop() {
-            // current is already visited here.
-
-            // We warm the inc egraph with x. So afterwards, don't explore further from it.
-            if self.version > 0 && usize::from(current) == 0 {
-                n_whitelist_nodes += 1;
-                continue;
-            }
-
-            // For each node in the equivalence class represented by `current`
-            n_whitelist_nodes += self[current].nodes.len();
-            for node in self[current].nodes.iter() {
-                for child in node.children().iter() {
-                    // Normalize the child to its representative
-                    let child_repr = self.find(*child);
-
-                    // Only proceed if we haven't visited this representative
-                    if !whitelist.contains(&child_repr) {
-                        whitelist.insert(child_repr);
-                        stack.push(child_repr);
-                    }
-                }
-            }
-        }
-
-        n_whitelist_nodes
-    }
-
-    #[inline(never)]
-    fn update_whitelist(&mut self) {
-        // Canonicalize
-        self.newest_old_classes = self
-            .newest_old_classes
-            .iter()
-            .map(|id| self.find(*id))
-            .collect();
-        self.newest_classes = self
-            .newest_classes
-            .iter()
-            .map(|id| self.find(*id))
-            .collect();
-
-        let mut whitelist = HashSet::default();
-        let mut n_whitelist_nodes = 0;
-        for id in self.newest_classes.iter() {
-            if !whitelist.contains(id) {
-                n_whitelist_nodes += self.add_reachable(*id, &mut whitelist);
-            }
-        }
-        for id in self.newest_old_classes.iter() {
-            if !whitelist.contains(id) {
-                n_whitelist_nodes += self.add_reachable(*id, &mut whitelist);
-            }
-        }
-
-        self.whitelist = whitelist;
-        self.n_whitelist_nodes = n_whitelist_nodes;
-    }
-
     #[inline(never)]
     fn rebuild_classes(&mut self, need_canon: HashSet<Id>) -> usize {
         let mut trimmed = 0;
@@ -1622,14 +1528,13 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         let (n_unions, need_canon) = self.process_unions();
         let trimmed_nodes = self.rebuild_classes(need_canon);
-        self.update_whitelist();
 
         let elapsed = og_start.elapsed();
         info!(
             concat!(
                 "REBUILT! in {}.{:03}s\n",
                 "  Old: hc size {}, eclasses: {}\n",
-                "  New: hc size {}, eclasses: {}, whitelist: {}, newest_classes:{}, newest_old_classes: {}\n",
+                "  New: hc size {}, eclasses: {}, newest_classes:{}\n",
                 "  unions: {}, trimmed nodes: {}"
             ),
             elapsed.as_secs(),
@@ -1638,9 +1543,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             old_n_eclasses,
             self.memo.len(),
             self.number_of_classes(),
-            self.whitelist.len(),
             self.newest_classes.len(),
-            self.newest_old_classes.len(),
             n_unions,
             trimmed_nodes,
         );

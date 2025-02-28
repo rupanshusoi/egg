@@ -121,8 +121,9 @@ impl Machine {
                 }
                 Instruction::Scan { out } => {
                     let remaining_instructions = instructions.as_slice();
-                    for id in &egraph.whitelist {
-                        let class = &egraph[*id];
+                    // for id in &egraph.whitelist {
+                    //     let class = &egraph[*id];
+                    for class in egraph.classes() {
                         self.reg.truncate(out.0 as usize);
                         self.reg.push(class.id);
                         self.run(egraph, remaining_instructions, subst, yield_fn)?

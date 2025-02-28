@@ -258,8 +258,7 @@ where
         while did_something {
             did_something = false;
 
-            for id in self.egraph.whitelist.iter() {
-                let class = &self.egraph[*id];
+            for class in self.egraph.classes() {
                 let pass = self.make_pass(&class);
                 match (self.costs.get(&self.egraph.find(class.id)), pass) {
                     (None, Some(new)) => {
