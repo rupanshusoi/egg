@@ -1369,19 +1369,19 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let mut trimmed = 0;
         let uf = &mut self.unionfind;
 
-        for class in self.classes.values_mut() {
-            if need_canon.contains(&class.id) {
-                let old_len = class.len();
-                class
-                    .nodes
-                    .iter_mut()
-                    .for_each(|n| n.node.update_children(|id| uf.find_mut(id)));
+        for id in need_canon {
+            let id = uf.find_mut(id);
+            let class = self.classes.get_mut(&id).unwrap();
+            let old_len = class.len();
+            class
+                .nodes
+                .iter_mut()
+                .for_each(|n| n.node.update_children(|id| uf.find_mut(id)));
 
-                class.nodes.sort_unstable_by(|n1, n2| n1.node.cmp(&n2.node));
-                class.nodes.dedup();
+            class.nodes.sort_unstable_by(|n1, n2| n1.node.cmp(&n2.node));
+            class.nodes.dedup();
 
-                trimmed += old_len - class.nodes.len();
-            }
+            trimmed += old_len - class.nodes.len();
         }
 
         let mut classes_by_op = std::mem::take(&mut self.classes_by_op);
