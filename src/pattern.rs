@@ -294,12 +294,7 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
                     Some(ids) => rewrite::search_eclasses_with_limit(
                         self,
                         egraph,
-                        egraph
-                            .newest_classes
-                            .intersection(ids)
-                            .collect::<HashSet<_>>()
-                            .into_iter()
-                            .copied(),
+                        egraph.newest_classes.intersection(ids).copied(),
                         limit,
                     ),
                 }
