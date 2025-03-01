@@ -94,8 +94,14 @@ impl<L: Language, N: Analysis<L>> Rewrite<L, N> {
     /// Call [`apply_matches`] on the [`Applier`].
     ///
     /// [`apply_matches`]: Applier::apply_matches()
-    pub fn apply(&self, egraph: &mut EGraph<L, N>, matches: &[SearchMatches<L>]) -> Vec<Id> {
-        self.applier.apply_matches(egraph, matches, self.name)
+    pub fn apply(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        matches: &[SearchMatches<L>],
+        node_limit: usize,
+    ) -> Vec<Id> {
+        self.applier
+            .apply_matches(egraph, matches, self.name, node_limit)
     }
 
     /// This `run` is for testing use only. You should use things
@@ -107,7 +113,7 @@ impl<L: Language, N: Analysis<L>> Rewrite<L, N> {
         let matches = self.search(egraph);
         log::debug!("Found rewrite {} {} times", self.name, matches.len());
 
-        let ids = self.apply(egraph, &matches);
+        let ids = self.apply(egraph, &matches, usize::MAX);
         let elapsed = start.elapsed();
         log::debug!(
             "Applied rewrite {} {} times in {}.{:03}",
@@ -335,6 +341,7 @@ where
         egraph: &mut EGraph<L, N>,
         matches: &[SearchMatches<L>],
         rule_name: Symbol,
+        node_limit: usize,
     ) -> Vec<Id> {
         let mut added = vec![];
         for mat in matches {

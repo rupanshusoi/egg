@@ -163,6 +163,7 @@ impl<L: Language, A: Analysis<L>> Applier<L, A> for MultiPattern<L> {
         egraph: &mut EGraph<L, A>,
         matches: &[SearchMatches<L>],
         _rule_name: Symbol,
+        _node_limit: usize,
     ) -> Vec<Id> {
         // TODO explanations?
         // the ids returned are kinda garbage

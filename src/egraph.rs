@@ -874,6 +874,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     /// Returns the uncanonical Id for every enode in the expr
+    #[inline]
     pub fn add_expr_uncanonical_internal(&mut self, expr: &RecExpr<L>) -> Id {
         let nodes = expr.as_ref();
         let mut new_ids: Vec<Id> = Vec::with_capacity(nodes.len());
@@ -1027,6 +1028,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     /// Like `add_uncanonical` but says if the enode was found in the hashcons or not
+    #[inline]
     pub fn add_uncanonical_internal(&mut self, mut raw_enode: L) -> Id {
         let original = raw_enode.clone();
         if let Some(existing_id) = self.lookup_internal(&mut raw_enode) {

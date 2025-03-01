@@ -355,13 +355,14 @@ where
         egraph: &mut EGraph<L, A>,
         matches: &[SearchMatches<L>],
         rule_name: Symbol,
+        node_limit: usize,
     ) -> Vec<Id> {
         let mut added = vec![];
         let ast = self.ast.as_ref();
         let mut id_buf = vec![0.into(); ast.len()];
         for mat in matches {
             let sast = mat.ast.as_ref().map(|cow| cow.as_ref());
-            for subst in &mat.substs {
+            for (idx, subst) in mat.substs.iter().enumerate() {
                 let did_something;
                 let id;
                 if egraph.are_explanations_enabled() {
@@ -376,6 +377,10 @@ where
 
                 if did_something {
                     added.push(id)
+                }
+
+                if (idx % 256 == 0) && egraph.total_size() > node_limit {
+                    return added;
                 }
             }
         }
