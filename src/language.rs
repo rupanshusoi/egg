@@ -781,6 +781,11 @@ pub trait Analysis<L: Language>: Sized {
     fn allow_ematching_cycles(&self) -> bool {
         true
     }
+
+    /// Returns the optimal enode in the given eclass. Default implementation just returns the first enode.
+    fn get_optimal_enode(egraph: &EGraph<L, Self>, id: Id) -> L {
+        egraph[id].nodes[0].node.clone()
+    }
 }
 
 impl<L: Language> Analysis<L> for () {

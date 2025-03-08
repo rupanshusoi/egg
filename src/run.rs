@@ -152,7 +152,8 @@ pub struct Runner<L: Language, N: Analysis<L>, IterData = ()> {
     pub hooks: Vec<Box<dyn FnMut(&mut Self) -> Result<(), String>>>,
 
     limits: RunnerLimits,
-    scheduler: Box<dyn RewriteScheduler<L, N>>,
+    /// The scheduler.
+    pub scheduler: Box<dyn RewriteScheduler<L, N>>,
 }
 
 /// Describes the limits that would stop a [`Runner`].
@@ -698,7 +699,7 @@ the [`EGraph`] and dominating how much time is spent while running the
 
 */
 #[allow(unused_variables)]
-pub trait RewriteScheduler<L, N>
+pub trait RewriteScheduler<L, N>: Debug
 where
     L: Language,
     N: Analysis<L>,

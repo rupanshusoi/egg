@@ -374,7 +374,7 @@ where
                     added.push(id)
                 }
 
-                if (idx % 256 == 0) && egraph.total_size() > node_limit {
+                if (idx % 256 == 0) && (egraph.total_size() > node_limit) {
                     return added;
                 }
             }
@@ -467,7 +467,7 @@ mod tests {
         let n_matches: usize = matches.iter().map(|m| m.substs.len()).sum();
         assert_eq!(n_matches, 2, "matches is wrong: {:#?}", matches);
 
-        let applications = commute_plus.apply(&mut egraph, &matches);
+        let applications = commute_plus.apply(&mut egraph, &matches, usize::MAX);
         egraph.rebuild();
         assert_eq!(applications.len(), 2);
 

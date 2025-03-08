@@ -35,14 +35,23 @@ enum ENodeOrReg<L> {
 
 #[inline(always)]
 fn for_each_matching_node<L, D>(
-    eclass: &EClass<L, D>,
+    egraph: &EGraph<L, D>,
+    eclass: &EClass<L, D::Data>,
     node: &L,
     mut f: impl FnMut(&L) -> Result,
 ) -> Result
 where
     L: Language,
+    D: Analysis<L>,
 {
-    if eclass.nodes.len() < 50 {
+    if eclass.version < egraph.get_version() {
+        let n = D::get_optimal_enode(egraph, eclass.id);
+        if n.matches(node) {
+            f(&n)
+        } else {
+            Err(())
+        }
+    } else if eclass.nodes.len() < 50 {
         eclass
             .nodes
             .iter()
@@ -113,11 +122,16 @@ impl Machine {
             match instruction {
                 Instruction::Bind { i, out, node } => {
                     let remaining_instructions = instructions.as_slice();
-                    return for_each_matching_node(&egraph[self.reg(*i)], node, |matched| {
-                        self.reg.truncate(out.0 as usize);
-                        matched.for_each(|id| self.reg.push(id));
-                        self.run(egraph, remaining_instructions, subst, yield_fn)
-                    });
+                    return for_each_matching_node(
+                        &egraph,
+                        &egraph[self.reg(*i)],
+                        node,
+                        |matched| {
+                            self.reg.truncate(out.0 as usize);
+                            matched.for_each(|id| self.reg.push(id));
+                            self.run(egraph, remaining_instructions, subst, yield_fn)
+                        },
+                    );
                 }
                 Instruction::Scan { out } => {
                     let remaining_instructions = instructions.as_slice();
@@ -141,8 +155,21 @@ impl Machine {
                         match node {
                             ENodeOrReg::ENode(node) => {
                                 let look = |i| self.lookup[usize::from(i)];
-                                match egraph.lookup(node.clone().map_children(look)) {
-                                    Some(id) => self.lookup.push(id),
+                                let mut n = node.clone().map_children(look);
+                                match egraph.lookup(&mut n) {
+                                    Some(id) => {
+                                        if egraph[id].version < egraph.get_version() {
+                                            let mut optimal = N::get_optimal_enode(egraph, id);
+                                            optimal.update_children(|id| egraph.find(id));
+                                            if n == optimal {
+                                                self.lookup.push(id)
+                                            } else {
+                                                return Ok(());
+                                            }
+                                        } else {
+                                            self.lookup.push(id)
+                                        }
+                                    }
                                     None => return Ok(()),
                                 }
                             }
