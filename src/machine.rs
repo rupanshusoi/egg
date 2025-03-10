@@ -46,7 +46,6 @@ where
 {
     if eclass.version < egraph.get_version() {
         D::get_optimal_enodes(egraph, eclass.id)
-            .iter()
             .filter(|n| n.matches(node))
             .try_for_each(f)
     } else if eclass.nodes.len() < 50 {
@@ -157,12 +156,12 @@ impl Machine {
                                 match egraph.lookup(&mut n) {
                                     Some(id) => {
                                         if egraph[id].version < egraph.get_version() {
-                                            let mut optimal = N::get_optimal_enodes(egraph, id);
-                                            optimal.iter_mut().for_each(|enode| {
-                                                enode.update_children(|id| egraph.find(id))
-                                            });
-                                            let b = optimal.iter().any(|enode| enode.matches(&n));
-                                            if b {
+                                            let is_optimal = N::get_optimal_enodes(egraph, id)
+                                                // .map(|enode| {
+                                                //     enode.clone().map_children(|id| egraph.find(id))
+                                                // })
+                                                .any(|enode| enode.matches(&n));
+                                            if is_optimal {
                                                 self.lookup.push(id)
                                             } else {
                                                 return Ok(());

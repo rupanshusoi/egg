@@ -783,8 +783,8 @@ pub trait Analysis<L: Language>: Sized {
     }
 
     /// Returns the optimal enode in the given eclass. Default implementation just returns the first enode.
-    fn get_optimal_enodes(egraph: &EGraph<L, Self>, id: Id) -> Vec<L> {
-        vec![egraph[id].nodes[0].node.clone()]
+    fn get_optimal_enodes(egraph: &EGraph<L, Self>, id: Id) -> impl Iterator<Item = &L> {
+        std::iter::once(&egraph[id].nodes[0].node)
     }
 }
 
