@@ -156,10 +156,11 @@ impl Machine {
                                 match egraph.lookup(&mut n) {
                                     Some(id) => {
                                         if egraph[id].version < egraph.get_version() {
+                                            // TODO: Is this map necessary?
                                             let is_optimal = N::get_optimal_enodes(egraph, id)
-                                                // .map(|enode| {
-                                                //     enode.clone().map_children(|id| egraph.find(id))
-                                                // })
+                                                .map(|enode| {
+                                                    enode.clone().map_children(|id| egraph.find(id))
+                                                })
                                                 .any(|enode| enode.matches(&n));
                                             if is_optimal {
                                                 self.lookup.push(id)
