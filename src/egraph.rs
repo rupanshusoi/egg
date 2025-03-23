@@ -1292,7 +1292,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         }
         self.newest_classes.remove(&class2.id);
 
-        let did_merge = self.analysis.merge(&mut class1.data, class2.data);
+        let mut uf = std::mem::take(&mut self.unionfind);
+        let did_merge = self.analysis.merge(&mut uf, &mut class1.data, class2.data);
+        std::mem::swap(&mut uf, &mut self.unionfind);
         if did_merge.0 {
             self.analysis_pending.extend(class1.parents.iter().copied());
         }
@@ -1471,7 +1473,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 let node_data = N::make(self, &node);
                 let class = self.classes.get_mut(&class_id).unwrap();
 
-                let did_merge = self.analysis.merge(&mut class.data, node_data);
+                let mut uf = std::mem::take(&mut self.unionfind);
+                let did_merge = self.analysis.merge(&mut uf, &mut class.data, node_data);
+                std::mem::swap(&mut uf, &mut self.unionfind);
                 if did_merge.0 {
                     self.analysis_pending.extend(class.parents.iter().copied());
                     N::modify(self, class_id)

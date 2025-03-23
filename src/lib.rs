@@ -51,7 +51,7 @@ mod pattern;
 mod rewrite;
 mod run;
 mod subst;
-mod unionfind;
+pub mod unionfind;
 mod util;
 
 /// A key to identify [`EClass`]es within an

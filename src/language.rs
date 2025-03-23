@@ -760,7 +760,7 @@ pub trait Analysis<L: Language>: Sized {
     /// This function may modify the [`Analysis`], which can be useful as a way
     /// to store information for the [`Analysis::modify`] hook to process, since
     /// `modify` has access to the e-graph.
-    fn merge(&mut self, a: &mut Self::Data, b: Self::Data) -> DidMerge;
+    fn merge(&mut self, uf: &mut UnionFind, a: &mut Self::Data, b: Self::Data) -> DidMerge;
 
     /// A hook that allows the modification of the
     /// [`EGraph`].
@@ -791,7 +791,7 @@ pub trait Analysis<L: Language>: Sized {
 impl<L: Language> Analysis<L> for () {
     type Data = ();
     fn make(_egraph: &mut EGraph<L, Self>, _enode: &L) -> Self::Data {}
-    fn merge(&mut self, _: &mut Self::Data, _: Self::Data) -> DidMerge {
+    fn merge(&mut self, _: &mut UnionFind, _: &mut Self::Data, _: Self::Data) -> DidMerge {
         DidMerge(false, false)
     }
 }
