@@ -786,6 +786,14 @@ pub trait Analysis<L: Language>: Sized {
     fn get_optimal_enodes(egraph: &EGraph<L, Self>, id: Id) -> impl Iterator<Item = &L> {
         std::iter::once(&egraph[id].nodes[0].node)
     }
+
+    /// Under development.
+    fn cost<C>(enode: &L, costs: C) -> usize
+    where
+        C: Fn(Id) -> usize,
+    {
+        AstSize.cost(enode, costs)
+    }
 }
 
 impl<L: Language> Analysis<L> for () {

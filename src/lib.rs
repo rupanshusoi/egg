@@ -51,6 +51,7 @@ mod pattern;
 mod rewrite;
 mod run;
 mod subst;
+#[allow(missing_docs)]
 pub mod unionfind;
 mod util;
 

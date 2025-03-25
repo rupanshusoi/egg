@@ -7,7 +7,7 @@ use crate::*;
 #[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
 pub struct ENode<L> {
     pub node: L,
-    pub version: usize,
+    pub cost: usize,
 }
 
 impl<L: Display> Display for ENode<L> {

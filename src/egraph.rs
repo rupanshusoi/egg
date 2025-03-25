@@ -650,47 +650,49 @@ where
     /// Translate an [`EClass`] over `L` into an [`EClass`] over `L2`.
     fn map_eclass(
         &self,
-        src_eclass: EClass<L, A::Data>,
+        _src_eclass: EClass<L, A::Data>,
     ) -> EClass<Self::L2, <Self::A2 as Analysis<Self::L2>>::Data> {
-        EClass {
-            id: src_eclass.id,
-            nodes: todo!(),
-            data: self.map_data(src_eclass.data),
-            version: src_eclass.version,
-            parents: src_eclass.parents,
-        }
+        todo!()
+        // EClass {
+        //     id: src_eclass.id,
+        //     nodes: todo!(),
+        //     data: self.map_data(src_eclass.data),
+        //     version: src_eclass.version,
+        //     parents: src_eclass.parents,
+        // }
     }
 
     /// Map an `EGraph` over `L` into an `EGraph` over `L2`.
-    fn map_egraph(&self, src_egraph: EGraph<L, A>) -> EGraph<Self::L2, Self::A2> {
-        let kv_map = |(k, v): (L, Id)| (self.map_node(k), v);
-        EGraph {
-            version: src_egraph.version,
-            newest_classes: todo!(),
-            analysis: self.map_analysis(src_egraph.analysis),
-            explain: None,
-            unionfind: src_egraph.unionfind,
-            memo: src_egraph.memo.into_iter().map(kv_map).collect(),
-            pending: src_egraph.pending,
-            nodes: src_egraph
-                .nodes
-                .into_iter()
-                .map(|x| self.map_node(x))
-                .collect(),
-            analysis_pending: src_egraph.analysis_pending,
-            classes: src_egraph
-                .classes
-                .into_iter()
-                .map(|(id, eclass)| (id, self.map_eclass(eclass)))
-                .collect(),
-            classes_by_op: src_egraph
-                .classes_by_op
-                .into_iter()
-                .map(|(k, v)| (self.map_discriminant(k), v))
-                .collect(),
-            cbo_pending: todo!(),
-            clean: false,
-        }
+    fn map_egraph(&self, _src_egraph: EGraph<L, A>) -> EGraph<Self::L2, Self::A2> {
+        todo!()
+        // let kv_map = |(k, v): (L, Id)| (self.map_node(k), v);
+        // EGraph {
+        //     version: src_egraph.version,
+        //     newest_classes: todo!(),
+        //     analysis: self.map_analysis(src_egraph.analysis),
+        //     explain: None,
+        //     unionfind: src_egraph.unionfind,
+        //     memo: src_egraph.memo.into_iter().map(kv_map).collect(),
+        //     pending: src_egraph.pending,
+        //     nodes: src_egraph
+        //         .nodes
+        //         .into_iter()
+        //         .map(|x| self.map_node(x))
+        //         .collect(),
+        //     analysis_pending: src_egraph.analysis_pending,
+        //     classes: src_egraph
+        //         .classes
+        //         .into_iter()
+        //         .map(|(id, eclass)| (id, self.map_eclass(eclass)))
+        //         .collect(),
+        //     classes_by_op: src_egraph
+        //         .classes_by_op
+        //         .into_iter()
+        //         .map(|(k, v)| (self.map_discriminant(k), v))
+        //         .collect(),
+        //     cbo_pending: todo!(),
+        //     clean: false,
+        // }
     }
 }
 
@@ -1056,8 +1058,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             }
         } else {
             let enode = ENode {
+                // FIXME: Get the cost of the best enode
+                cost: N::cost(&raw_enode, |id| self[id].nodes[0].cost),
                 node: raw_enode,
-                version: 0,
             };
             let id = self.make_new_eclass(enode, original.clone());
             self.newest_classes.insert(id);
@@ -1305,7 +1308,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         concat_vecs(&mut class1.nodes, class2.nodes);
         concat_vecs(&mut class1.parents, class2.parents);
 
-        debug_assert!(class1.nodes.iter().all(|n| n.version <= class1.version));
+        debug_assert!(class1.nodes.iter().all(|n| n.cost <= class1.version));
 
         N::modify(self, id1);
         true

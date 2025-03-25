@@ -341,7 +341,7 @@ where
         egraph: &mut EGraph<L, N>,
         matches: &[SearchMatches<L>],
         rule_name: Symbol,
-        node_limit: usize,
+        _node_limit: usize,
     ) -> Vec<Id> {
         let mut added = vec![];
         for mat in matches {

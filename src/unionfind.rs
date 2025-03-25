@@ -3,10 +3,12 @@ use std::fmt::Debug;
 
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
+#[allow(missing_docs)]
 pub struct UnionFind {
     parents: Vec<Id>,
 }
 
+#[allow(missing_docs)]
 impl UnionFind {
     pub fn make_set(&mut self) -> Id {
         let id = Id::from(self.parents.len());
