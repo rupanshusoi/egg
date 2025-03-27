@@ -129,7 +129,7 @@ pub(crate) struct UniqueQueue<T>
 where
     T: Eq + std::hash::Hash + Clone,
 {
-    set: hashbrown::HashSet<T>,
+    pub(crate) set: hashbrown::HashSet<T>,
     queue: std::collections::VecDeque<T>,
 }
 

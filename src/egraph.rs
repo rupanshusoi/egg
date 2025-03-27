@@ -1372,43 +1372,51 @@ impl<L: Language + Display, N: Analysis<L>> EGraph<L, N> {
 
 // All the rebuilding stuff
 impl<L: Language, N: Analysis<L>> EGraph<L, N> {
+    // fn make_topk(eclass: &EClass<L, N>, uf: &UnionFind) -> Vec<ENode<L>> {
+    //     todo!()
+    // }
+
     #[inline(never)]
-    fn rebuild_classes(&mut self, nc: HashSet<Id>) -> usize {
+    fn rebuild_classes(&mut self, mut need_canon: UniqueQueue<Id>) -> usize {
         let mut trimmed = 0;
 
         let mut uf = std::mem::take(&mut self.unionfind);
         let mut classes = std::mem::take(&mut self.classes);
 
-        let mut need_canon = UniqueQueue::default();
-        need_canon.extend(nc);
-
-        while let Some(id) = need_canon.pop() {
-            let id = uf.find_mut(id);
-
-            // First compute the costs for each node
-            let costs = classes
-                .get(&id)
-                .unwrap()
-                .nodes
-                .iter()
-                .map(|n| {
-                    N::cost(&n.node, |id| {
-                        classes.get(&uf.find(id)).unwrap().topk[0].cost
-                    })
-                })
-                .collect::<Vec<_>>();
+        for id in need_canon.set.iter() {
+            let id = uf.find_mut(*id);
 
             let class = classes.get_mut(&id).unwrap();
             let old_len = class.len();
-            class.nodes.iter_mut().enumerate().for_each(|(idx, n)| {
+            class.nodes.iter_mut().for_each(|n| {
                 n.node.update_children(|id| uf.find_mut(id));
-                n.cost = costs[idx];
             });
 
             class.nodes.sort_unstable_by(|n1, n2| n1.node.cmp(&n2.node));
             class.nodes.dedup_by(|n1, n2| n1.node.eq(&n2.node));
 
-            let mut topk = class.nodes.clone();
+            trimmed += old_len - class.nodes.len();
+        }
+
+        // All enodes are canon now
+        // Note: Only enodes in topk have their cost field non-zero. Enodes in class.nodes should
+        // have that field always set to zero.
+        while let Some(id) = need_canon.pop() {
+            let id = uf.find_mut(id);
+            let class = classes.get(&id).unwrap();
+            let old_min = class.topk[0].cost;
+
+            let mut topk = class
+                .nodes
+                .iter()
+                .map(|n| ENode {
+                    node: n.node.clone(),
+                    cost: N::cost(&n.node, |id| {
+                        classes.get(&uf.find(id)).unwrap().topk[0].cost
+                    }),
+                })
+                .collect::<Vec<_>>();
+
             topk.sort_unstable_by(|n1, n2| n1.cost.cmp(&n2.cost));
 
             let mut seen = 0;
@@ -1422,18 +1430,14 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                     }
                     seen != K + 1
                 })
-                .collect();
+                .collect::<Vec<_>>();
 
-            let old_min = class.topk[0].cost;
-
-            class.topk = topk;
-            assert!(class.topk.len() != 0);
-
-            if class.topk[0].cost < old_min {
+            if topk[0].cost < old_min {
                 need_canon.extend(class.parents.clone());
             }
 
-            trimmed += old_len - class.nodes.len();
+            let class = classes.get_mut(&id).unwrap();
+            class.topk = topk;
         }
 
         std::mem::swap(&mut uf, &mut self.unionfind);
@@ -1455,7 +1459,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         }
 
         #[cfg(debug_assertions)]
-        for ids in self.classes_by_op.values_mut() {
+        for ids in self.classes_by_op.values() {
             let unique: HashSet<Id> = ids.iter().copied().collect();
             assert_eq!(ids.len(), unique.len());
         }
@@ -1499,10 +1503,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     #[inline(never)]
-    fn process_unions(&mut self) -> (usize, HashSet<Id>) {
+    fn process_unions(&mut self) -> (usize, UniqueQueue<Id>) {
         let mut n_unions = 0;
         // Eclasses with at least one enode that must be recanonicalized
-        let mut need_canon = HashSet::default();
+        let mut need_canon = UniqueQueue::default();
 
         while !self.pending.is_empty() || !self.analysis_pending.is_empty() {
             while let Some(class) = self.pending.pop() {
