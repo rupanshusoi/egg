@@ -45,6 +45,8 @@ pub struct EClass<L, D> {
     pub id: Id,
     /// The equivalent enodes in this equivalence class.
     pub nodes: Vec<ENode<L>>,
+    /// Under development.
+    pub topk: Vec<ENode<L>>,
     /// The analysis data associated with this eclass.
     ///
     /// Modifying this field will _not_ cause changes to propagate through the e-graph.

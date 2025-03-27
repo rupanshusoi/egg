@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use log::*;
 
+const K: usize = 2;
+
 /** A data structure to keep track of equalities between expressions.
 
 Check out the [background tutorial](crate::tutorials::_01_background)
@@ -1058,8 +1060,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             }
         } else {
             let enode = ENode {
-                // FIXME: Get the cost of the best enode
-                cost: N::cost(&raw_enode, |id| self[id].nodes[0].cost),
+                cost: N::cost(&raw_enode, |id| self[id].topk[0].cost),
                 node: raw_enode,
             };
             let id = self.make_new_eclass(enode, original.clone());
@@ -1126,6 +1127,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let class = EClass {
             id,
             nodes: vec![enode.clone()],
+            topk: vec![enode.clone()],
             data: N::make(self, &original),
             version: self.version,
             parents: Default::default(),
@@ -1305,10 +1307,11 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             self.analysis_pending.extend(class2.parents.iter().copied());
         }
 
+        // FIXME: Add class1 to need_canon
         concat_vecs(&mut class1.nodes, class2.nodes);
         concat_vecs(&mut class1.parents, class2.parents);
 
-        debug_assert!(class1.nodes.iter().all(|n| n.cost <= class1.version));
+        // debug_assert!(class1.nodes.iter().all(|n| n.cost <= class1.version));
 
         N::modify(self, id1);
         true
@@ -1370,24 +1373,71 @@ impl<L: Language + Display, N: Analysis<L>> EGraph<L, N> {
 // All the rebuilding stuff
 impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     #[inline(never)]
-    fn rebuild_classes(&mut self, need_canon: HashSet<Id>) -> usize {
+    fn rebuild_classes(&mut self, nc: HashSet<Id>) -> usize {
         let mut trimmed = 0;
-        let uf = &mut self.unionfind;
 
-        for id in need_canon {
+        let mut uf = std::mem::take(&mut self.unionfind);
+        let mut classes = std::mem::take(&mut self.classes);
+
+        let mut need_canon = UniqueQueue::default();
+        need_canon.extend(nc);
+
+        while let Some(id) = need_canon.pop() {
             let id = uf.find_mut(id);
-            let class = self.classes.get_mut(&id).unwrap();
-            let old_len = class.len();
-            class
+
+            // First compute the costs for each node
+            let costs = classes
+                .get(&id)
+                .unwrap()
                 .nodes
-                .iter_mut()
-                .for_each(|n| n.node.update_children(|id| uf.find_mut(id)));
+                .iter()
+                .map(|n| {
+                    N::cost(&n.node, |id| {
+                        classes.get(&uf.find(id)).unwrap().topk[0].cost
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            let class = classes.get_mut(&id).unwrap();
+            let old_len = class.len();
+            class.nodes.iter_mut().enumerate().for_each(|(idx, n)| {
+                n.node.update_children(|id| uf.find_mut(id));
+                n.cost = costs[idx];
+            });
 
             class.nodes.sort_unstable_by(|n1, n2| n1.node.cmp(&n2.node));
-            class.nodes.dedup();
+            class.nodes.dedup_by(|n1, n2| n1.node.eq(&n2.node));
+
+            let mut topk = class.nodes.clone();
+            topk.sort_unstable_by(|n1, n2| n1.cost.cmp(&n2.cost));
+
+            let mut seen = 0;
+            let mut max = usize::MIN;
+            let topk = topk
+                .into_iter()
+                .take_while(|n| {
+                    if n.cost > max {
+                        seen += 1;
+                        max = n.cost;
+                    }
+                    seen != K + 1
+                })
+                .collect();
+
+            let old_min = class.topk[0].cost;
+
+            class.topk = topk;
+            assert!(class.topk.len() != 0);
+
+            if class.topk[0].cost < old_min {
+                need_canon.extend(class.parents.clone());
+            }
 
             trimmed += old_len - class.nodes.len();
         }
+
+        std::mem::swap(&mut uf, &mut self.unionfind);
+        std::mem::swap(&mut classes, &mut self.classes);
 
         let mut classes_by_op = std::mem::take(&mut self.classes_by_op);
         while let Some((dscrms, src, dest)) = self.cbo_pending.pop() {

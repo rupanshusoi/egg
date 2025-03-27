@@ -45,9 +45,15 @@ where
     D: Analysis<L>,
 {
     if eclass.version < egraph.get_version() {
-        D::get_optimal_enodes(egraph, eclass.id)
-            .filter(|n| n.matches(node))
+        eclass
+            .topk
+            .iter()
+            .filter(|n| n.node.matches(node))
+            .map(|n| &n.node)
             .try_for_each(f)
+        // D::get_optimal_enodes(egraph, eclass.id)
+        //     .filter(|n| n.matches(node))
+        //     .try_for_each(f)
     } else if eclass.nodes.len() < 50 {
         eclass
             .nodes
@@ -157,12 +163,16 @@ impl Machine {
                                     Some(id) => {
                                         if egraph[id].version < egraph.get_version() {
                                             // TODO: Is this map necessary?
-                                            let is_optimal = N::get_optimal_enodes(egraph, id)
-                                                .map(|enode| {
-                                                    enode.clone().map_children(|id| egraph.find(id))
-                                                })
-                                                .any(|enode| enode.matches(&n));
-                                            if is_optimal {
+                                            // let is_optimal = N::get_optimal_enodes(egraph, id)
+                                            //     .map(|enode| {
+                                            //         enode.clone().map_children(|id| egraph.find(id))
+                                            //     })
+                                            //     .any(|enode| enode.matches(&n));
+                                            if egraph[id]
+                                                .topk
+                                                .iter()
+                                                .any(|enode| enode.node.matches(&n))
+                                            {
                                                 self.lookup.push(id)
                                             } else {
                                                 return Ok(());
